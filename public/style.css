@@ -694,3 +694,33 @@ footer{
     padding:13px 16px;
   }
 }
+
+.card-holder{
+  display:block;
+  margin-top:5px;
+  color:#263d62;
+  font-size:12px;
+  font-weight:900;
+}
+.select-pill{
+  background:var(--blue)!important;
+  color:#fff!important;
+  box-shadow:0 4px 12px rgba(11,79,184,.18);
+}
+.select-pill:hover{
+  background:var(--blue-dark)!important;
+}
+.payment-actions{
+  display:flex;
+  justify-content:flex-start;
+  margin-top:18px;
+  padding-top:2px;
+}
+.payment-actions .payment-back{
+  display:inline-flex!important;
+  align-items:center;
+  justify-content:center;
+  min-width:96px;
+  visibility:visible!important;
+  opacity:1!important;
+}
