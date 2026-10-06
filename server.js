@@ -77,23 +77,16 @@ async function fetchTacomCards(cpf, retry = true) {
     return { response, raw, json, url };
   }
 
-  // A TACOM pode diferenciar a rota com e sem "/" final.
-  // Tentamos primeiro exatamente com a barra após o CPF.
-  const withSlash = `${TACOM_BASE_URL}/citsoa-cartao/v1/citsbe/cartao/${encodeURIComponent(cpf)}/`;
-  const withoutSlash = `${TACOM_BASE_URL}/citsoa-cartao/v1/citsbe/cartao/${encodeURIComponent(cpf)}`;
+  // Endpoint TACOM confirmado: o CPF deve ser seguido por /0
+  // Ex.: /citsoa-cartao/v1/citsbe/cartao/10522997686/0
+  const cardsUrl = `${TACOM_BASE_URL}/citsoa-cartao/v1/citsbe/cartao/${encodeURIComponent(cpf)}/0`;
 
-  let result = await callCards(withSlash);
+  let result = await callCards(cardsUrl);
 
   if (result.response.status === 401 && retry) {
     tacomTokenCache = { token: '', expiresAt: 0 };
     await getTacomToken(true);
     return fetchTacomCards(cpf, false);
-  }
-
-  // Fallback sem barra apenas se a variante com barra não existir.
-  if (result.response.status === 404) {
-    const fallback = await callCards(withoutSlash);
-    if (fallback.response.status !== 404) result = fallback;
   }
 
   const { response: r, raw, json: j, url } = result;
