@@ -573,3 +573,124 @@ footer{
 .customer-summary strong,.customer-summary span{display:block}
 .customer-summary strong{font-size:16px;color:#173c79}
 .customer-summary span{font-size:13px;color:var(--muted);margin-top:3px}
+
+.card-option-premium{
+  width:100%;
+  display:block;
+  text-align:left;
+  padding:0;
+  overflow:hidden;
+  border:1px solid #d7e1ef;
+  background:#fff;
+  border-radius:16px;
+  box-shadow:0 8px 24px rgba(18,65,132,.06);
+  transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;
+}
+.card-option-premium:hover{
+  transform:translateY(-2px);
+  border-color:#9ebce4;
+  box-shadow:0 14px 32px rgba(18,65,132,.11);
+}
+.card-option-top{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:18px;
+  padding:18px 20px 16px;
+}
+.card-identification{
+  min-width:0;
+}
+.card-label{
+  display:block;
+  color:var(--muted);
+  font-size:10px;
+  line-height:1;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.11em;
+  margin-bottom:7px;
+}
+.card-number{
+  display:block;
+  color:#0d2d61;
+  font-size:19px;
+  line-height:1.1;
+  letter-spacing:.02em;
+}
+.card-holder{
+  display:block;
+  margin-top:5px;
+  color:#5d6f8a;
+  font-size:12px;
+  font-weight:700;
+}
+.select-pill{
+  flex:0 0 auto;
+  display:inline-flex;
+  align-items:center;
+  min-height:34px;
+  padding:0 12px;
+  border-radius:999px;
+  background:#edf4ff;
+  color:var(--blue);
+  font-size:12px;
+  font-weight:900;
+}
+.card-option-bottom{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  border-top:1px solid #e7edf5;
+  background:#f8fbff;
+}
+.balance-box,.balance-update{
+  padding:14px 20px;
+}
+.balance-box{
+  border-right:1px solid #e7edf5;
+}
+.balance-box span,.balance-update span{
+  display:block;
+  color:#6b7890;
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  font-weight:900;
+}
+.balance-box strong{
+  display:block;
+  margin-top:4px;
+  color:var(--blue);
+  font-size:23px;
+  line-height:1.1;
+}
+.balance-update strong{
+  display:block;
+  margin-top:5px;
+  color:#243b5e;
+  font-size:12px;
+  line-height:1.35;
+}
+@media(max-width:600px){
+  .card-option-top{
+    padding:16px;
+  }
+  .card-number{
+    font-size:17px;
+  }
+  .select-pill{
+    min-height:32px;
+    padding:0 10px;
+    font-size:11px;
+  }
+  .card-option-bottom{
+    grid-template-columns:1fr;
+  }
+  .balance-box{
+    border-right:0;
+    border-bottom:1px solid #e7edf5;
+  }
+  .balance-box,.balance-update{
+    padding:13px 16px;
+  }
+}
