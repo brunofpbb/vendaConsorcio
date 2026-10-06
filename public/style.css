@@ -307,6 +307,7 @@ input:focus{
 
 .alert{
   max-width:620px;
+  transition:opacity .25s ease,transform .25s ease;
   margin:0 auto 22px;
   border-radius:10px;
   padding:13px 15px;
@@ -315,6 +316,7 @@ input:focus{
   color:var(--danger);
   font-size:14px;
 }
+.alert.leaving{opacity:0;transform:translateY(-8px)}
 .cards-list{display:grid;gap:12px}
 .card-option{
   width:100%;
@@ -452,18 +454,37 @@ footer{
 
 @media(max-width:760px){
   .utility-inner{
-    min-height:52px;
-    padding:7px 14px;
-    flex-wrap:wrap;
+    min-height:44px;
+    padding:0 14px;
+    flex-wrap:nowrap;
   }
-  .social-links{font-size:20px}
+  .social-links{
+    gap:16px;
+    font-size:18px;
+    flex:0 0 auto;
+  }
   .utility-contact{
-    font-size:12px;
+    margin-left:auto;
     gap:10px;
+    font-size:12px;
+    flex:0 1 auto;
+    min-width:0;
   }
-  .utility-contact span{display:inline}
   .utility-contact a{
-    padding:0 4px;
+    min-height:32px;
+    padding:0;
+    white-space:nowrap;
+  }
+  .utility-phone span{display:inline}
+  .utility-email span{display:none}
+  .utility-email{
+    width:32px;
+    height:32px;
+    display:grid!important;
+    place-items:center;
+    border-radius:8px;
+    background:rgba(255,255,255,.10);
+    font-size:16px;
   }
   .main-header-inner{padding:8px 16px;min-height:80px}
   .brand img{width:170px;max-height:64px}
