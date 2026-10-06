@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-  const state = { cpf: '', cards: [], card: null, amount: 0, paymentId: null, mpController: null };
+  const state = { cpf: '', cards: [], card: null, amount: 0, paymentId: null, mpController: null, email: '', phone: '' };
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => [...document.querySelectorAll(s)];
   const alertBox = $('#alert');
@@ -68,6 +68,40 @@ document.addEventListener('DOMContentLoaded', () => {
     e.target.value = d.replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d)/,'$1.$2').replace(/(\d{3})(\d{1,2})$/,'$1-$2');
   });
 
+  function renderCards(){
+    $('#cards-list').innerHTML = state.cards.map((c,i) => `
+      <button class="card-option card-option-rich" type="button" data-card-index="${i}">
+        <div class="card-main">
+          <strong>${escapeHtml(c.cardNumber)}</strong>
+          <span>${escapeHtml(c.name || 'Cartão de usuário')}</span>
+          <div class="card-balance-inline">
+            <small>Saldo aproximado</small>
+            <b>${c.balance == null ? 'Não informado' : brl(c.balance)}</b>
+          </div>
+          <small class="balance-date">Atualizado em: ${escapeHtml(formatBalanceDate(c.balanceDate))}</small>
+        </div>
+        <em>Selecionar →</em>
+      </button>`).join('');
+  }
+
+  function showUpdatePanel(){
+    clearAlert();
+    const c = state.cards[0] || {};
+    $('.panel').forEach(p => p.classList.remove('active'));
+    $('.step').forEach(s => s.classList.toggle('active', Number(s.dataset.step) <= 1));
+    $('#panel-update').classList.add('active');
+    $('#update-name').textContent = c.name || 'Cliente';
+    $('#update-cpf').textContent = 'CPF: ' + state.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+
+    const validApiEmail =
+      /^\S+@\S+\.\S+$/.test(c.email || '') &&
+      String(c.email || '').toLowerCase() !== 'recepcao@turintransportes.com.br';
+
+    $('#update-email').value = validApiEmail ? c.email : '';
+    $('#update-phone').value = digits(c.phone).length >= 10 ? c.phone : '';
+    window.scrollTo({top: Math.max(0, $('.flow-card').offsetTop - 18), behavior:'smooth'});
+  }
+
   $('#cpf-form').addEventListener('submit', async e => {
     e.preventDefault(); clearAlert();
     const btn = e.submitter; const cpf = digits($('#cpf').value);
@@ -77,23 +111,74 @@ document.addEventListener('DOMContentLoaded', () => {
       const r = await fetch('/api/cards/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cpf})});
       const j = await r.json();
       if(!r.ok) throw new Error(j.message || 'Cadastro não encontrado.');
-      state.cpf = cpf; state.cards = j.cards || [];
-      $('#cards-list').innerHTML = state.cards.map((c,i) => `
-        <button class="card-option card-option-rich" type="button" data-card-index="${i}">
-          <div class="card-main">
-            <strong>${escapeHtml(c.cardNumber)}</strong>
-            <span>${escapeHtml(c.name || 'Cartão de usuário')}</span>
-            <div class="card-balance-inline">
-              <small>Saldo aproximado</small>
-              <b>${c.balance == null ? 'Não informado' : brl(c.balance)}</b>
-            </div>
-            <small class="balance-date">Atualizado em: ${escapeHtml(formatBalanceDate(c.balanceDate))}</small>
-          </div>
-          <em>Selecionar →</em>
-        </button>`).join('');
-      go(2);
+      state.cpf = cpf;
+      state.cards = j.cards || [];
+      renderCards();
+
+      const needsUpdate = state.cards.some(c => c.contactUpdateRequired);
+      if(needsUpdate){
+        showUpdatePanel();
+      }else{
+        state.email = state.cards[0]?.email || '';
+        state.phone = state.cards[0]?.phone || '';
+        go(2);
+      }
     }catch(err){ showAlert(err.message || 'Não foi possível consultar o cadastro.'); }
     finally{ btn.disabled=false; btn.textContent='Consultar cartões'; }
+  });
+
+  $('#update-phone').addEventListener('input', e => {
+    const d = digits(e.target.value).slice(0,11);
+    e.target.value = d.length > 10
+      ? d.replace(/(\d{2})(\d{5})(\d{0,4})/, '($1) $2-$3')
+      : d.replace(/(\d{2})(\d{4})(\d{0,4})/, '($1) $2-$3');
+  });
+
+  $('.back-update').addEventListener('click', () => go(1));
+
+  $('#update-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    clearAlert();
+
+    const email = $('#update-email').value.trim().toLowerCase();
+    const phone = digits($('#update-phone').value);
+    const btn = e.submitter;
+
+    if(!/^\S+@\S+\.\S+$/.test(email) || email === 'recepcao@turintransportes.com.br'){
+      return showAlert('Informe um e-mail válido.');
+    }
+    if(phone.length < 10 || phone.length > 11){
+      return showAlert('Informe um telefone válido com DDD.');
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Salvando…';
+
+    try{
+      const r = await fetch('/api/customer/update',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ cpf:state.cpf, email, phone })
+      });
+      const j = await r.json();
+      if(!r.ok) throw new Error(j.message || 'Não foi possível atualizar o cadastro.');
+
+      state.email = email;
+      state.phone = phone;
+      state.cards = state.cards.map(c => ({
+        ...c,
+        email,
+        phone,
+        contactUpdateRequired:false
+      }));
+      renderCards();
+      go(2);
+    }catch(err){
+      showAlert(err.message || 'Não foi possível atualizar o cadastro.');
+    }finally{
+      btn.disabled = false;
+      btn.textContent = 'Salvar e continuar';
+    }
   });
 
   $('#cards-list').addEventListener('click', e => {
@@ -113,8 +198,8 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
       <p class="balance-note">O saldo refere-se às cargas já transferidas para o cartão. Pagamentos recentes podem ainda não aparecer e o saldo será atualizado quando o cartão for utilizado no veículo.</p>
     `;
-    $('#email').value = state.card.email || '';
-    $('#phone').value = state.card.phone || '';
+    $('#email').value = state.email || state.card.email || '';
+    $('#phone').value = state.phone || state.card.phone || '';
     go(3);
   });
 
