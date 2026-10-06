@@ -560,21 +560,29 @@ app.post('/api/mp/webhook', async (req, res) => {
       return res.status(200).json({ ok: true, forwarded: false });
     }
 
-    // Encaminha para o n8n no mesmo formato em que o Webhook node do n8n
-    // recebia diretamente do Mercado Pago.
-    const forwardedItem = {
-      headers: req.headers || {},
-      params: req.params || {},
-      query: req.query || {},
-      body: req.body || {},
-      webhookUrl: n8nUrl,
-      executionMode: 'production'
-    };
+    // Repassa a requisição como se o Mercado Pago estivesse chamando o n8n diretamente.
+    // O próprio Webhook node do n8n montará headers/query/body no formato habitual.
+    const target = new URL(n8nUrl);
+    for (const [key, value] of Object.entries(req.query || {})) {
+      if (Array.isArray(value)) {
+        value.forEach(v => target.searchParams.append(key, String(v)));
+      } else if (value !== undefined && value !== null) {
+        target.searchParams.set(key, String(value));
+      }
+    }
 
-    const nr = await fetch(n8nUrl, {
+    const forwardHeaders = {
+      'Content-Type': req.headers['content-type'] || 'application/json',
+      'Accept': req.headers['accept'] || 'application/json'
+    };
+    if (req.headers['user-agent']) forwardHeaders['User-Agent'] = req.headers['user-agent'];
+    if (req.headers['x-signature']) forwardHeaders['x-signature'] = req.headers['x-signature'];
+    if (req.headers['x-request-id']) forwardHeaders['x-request-id'] = req.headers['x-request-id'];
+
+    const nr = await fetch(target, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(forwardedItem)
+      headers: forwardHeaders,
+      body: JSON.stringify(req.body || {})
     });
 
     if (!nr.ok) {
