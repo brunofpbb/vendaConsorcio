@@ -348,48 +348,61 @@ app.get('/api/mp/payment-status', async (req, res) => {
   }
 });
 
-const processedPayments = new Set();
-
 app.post('/api/mp/webhook', async (req, res) => {
-  // Responde rápido ao Mercado Pago; o processamento continua nesta execução.
   try {
     const topic = req.body?.type || req.query?.type;
     const dataId = req.body?.data?.id || req.query?.['data.id'] || req.query?.id;
-    if (topic !== 'payment' || !dataId) return res.status(200).json({ ok: true, ignored: true });
 
-    const payment = await mpGetPayment(dataId);
-    const correlationId = safeText(payment?.external_reference, 100);
-    if (correlationId) await updateRechargeByCorrelation(correlationId, payment);
-
-    const approved = ['approved', 'accredited'].includes(String(payment?.status || '').toLowerCase());
-    if (approved && !processedPayments.has(String(payment.id))) {
-      const n8nUrl = process.env.N8N_PAYMENT_WEBHOOK_URL;
-      if (n8nUrl) {
-        const payload = {
-          event: 'recharge.payment.approved',
-          paymentId: String(payment.id),
-          correlationId,
-          amount: payment.transaction_amount,
-          status: payment.status,
-          paymentMethod: payment.payment_method_id,
-          approvedAt: payment.date_approved,
-          cpf: onlyDigits(payment?.metadata?.cpf || payment?.payer?.identification?.number),
-          cardNumber: safeText(payment?.metadata?.card_number, 40)
-        };
-        const headers = { 'Content-Type': 'application/json' };
-        if (process.env.N8N_WEBHOOK_SECRET) headers['X-Webhook-Secret'] = process.env.N8N_WEBHOOK_SECRET;
-
-        const nr = await fetch(n8nUrl, { method: 'POST', headers, body: JSON.stringify(payload) });
-        if (!nr.ok) throw new Error(`n8n respondeu ${nr.status}`);
-      }
-      processedPayments.add(String(payment.id));
+    if (topic !== 'payment' || !dataId) {
+      return res.status(200).json({ ok: true, ignored: true });
     }
 
-    res.status(200).json({ ok: true });
+    // Consulta o pagamento apenas para validar a notificação e registrar a correlação.
+    // A atualização das colunas de pagamento no Sheets continua sendo responsabilidade do n8n.
+    const payment = await mpGetPayment(dataId);
+    const correlationId = safeText(payment?.external_reference, 100);
+
+    console.log('[MP][Webhook]', {
+      paymentId: String(payment?.id || dataId),
+      status: payment?.status,
+      correlationId
+    });
+
+    const n8nUrl = process.env.N8N_PAYMENT_WEBHOOK_URL;
+    if (n8nUrl) {
+      // Mantém um payload compatível com a notificação do Mercado Pago
+      // e acrescenta dados úteis já resolvidos pelo nosso backend.
+      const payload = {
+        ...(req.body || {}),
+        type: topic,
+        data: { ...(req.body?.data || {}), id: String(dataId) },
+        payment: {
+          id: String(payment?.id || dataId),
+          status: payment?.status || null,
+          status_detail: payment?.status_detail || null,
+          external_reference: correlationId || null,
+          transaction_amount: payment?.transaction_amount ?? null,
+          payment_method_id: payment?.payment_method_id || null,
+          payment_type_id: payment?.payment_type_id || null,
+          date_approved: payment?.date_approved || null
+        }
+      };
+
+      const nr = await fetch(n8nUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!nr.ok) {
+        throw new Error(`n8n respondeu ${nr.status}`);
+      }
+    }
+
+    return res.status(200).json({ ok: true });
   } catch (e) {
     console.error('[MP][webhook]', e);
-    // 500 faz o provedor tentar novamente; o fluxo é idempotente por payment id/correlation id.
-    res.status(500).json({ ok: false });
+    return res.status(500).json({ ok: false });
   }
 });
 
