@@ -89,7 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
       state.mpController = await bricks.create('payment','payment-brick',{
         initialization:{ amount: state.amount },
         customization:{
-          paymentMethods:{ bankTransfer:['pix'], creditCard:'all', debitCard:'all', ticket:'all', mercadoPago:'all' },
+          paymentMethods:{ bankTransfer:['pix'] },
           visual:{ style:{ theme:'default' } }
         },
         callbacks:{
