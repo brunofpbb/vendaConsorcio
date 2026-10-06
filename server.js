@@ -449,7 +449,8 @@ app.post('/api/mp/pay', async (req, res) => {
     const paymentMethodId = safeText(req.body?.paymentMethodId ?? req.body?.payment_method_id, 80).toLowerCase();
     const token = safeText(req.body?.token, 500);
     const issuerId = req.body?.issuerId ?? req.body?.issuer_id;
-    const installments = Math.max(1, Number(req.body?.installments || 1));
+    // Recarga não permite parcelamento: cartão é sempre cobrado em 1x.
+    const installments = 1;
     const isPix = paymentMethodId === 'pix' || paymentMethodId === 'bank_transfer';
 
     if (!(amount > 0)) return res.status(400).json({ ok: false, message: 'Valor de recarga inválido.' });
