@@ -184,7 +184,7 @@ async function appendRecharge(row) {
       row.requestedAt, '', row.name, row.phone, row.email, row.cpf,
       row.cardNumber, row.amount, '', 'Não', row.payerName || row.name,
       row.payerCpf || row.cpf, row.paymentId || '', row.correlationId,
-      '', row.reference, 'PIX', row.userId || '', row.transactionId || ''
+      '', row.reference, row.paymentMethodLabel || '', row.userId || '', row.transactionId || ''
     ]] }
   });
 }
@@ -213,6 +213,13 @@ async function updateRechargeByCorrelation(correlationId, payment) {
   const payerCpf = onlyDigits(payment?.payer?.identification?.number || '');
 
   const current = rows[rowIdx] || [];
+  const paymentType = String(payment?.payment_type_id || '').toLowerCase();
+  const paymentMethod = String(payment?.payment_method_id || '').toLowerCase();
+  const paymentMethodLabel =
+    paymentMethod === 'pix' || paymentType === 'bank_transfer'
+      ? 'PIX'
+      : (paymentType === 'credit_card' ? 'Cartão de Crédito'
+        : (paymentType === 'debit_card' ? 'Cartão de Débito' : (paymentMethod || paymentType || current[16] || '')));
   const values = [[
     paidAt,
     current[9] || 'Não', // "Lançado?" é responsabilidade do fluxo de recarga/n8n
@@ -222,7 +229,7 @@ async function updateRechargeByCorrelation(correlationId, payment) {
     correlationId,
     current[14] || '',
     current[15] || correlationId,
-    'PIX',
+    paymentMethodLabel,
     current[17] || '',
     String(payment?.id || '')
   ]];
@@ -243,26 +250,30 @@ app.post('/api/mp/pay', async (req, res) => {
     const amount = money(req.body?.transactionAmount ?? req.body?.transaction_amount);
     const cpf = onlyDigits(req.body?.cpf);
     const cardNumber = safeText(req.body?.cardNumber, 40);
-    const email = safeText(req.body?.email, 160);
+    const email = safeText(req.body?.email || req.body?.payer?.email, 160);
     const name = safeText(req.body?.name, 120);
     const phone = onlyDigits(req.body?.phone);
+    const paymentMethodId = safeText(req.body?.paymentMethodId ?? req.body?.payment_method_id, 80).toLowerCase();
+    const token = safeText(req.body?.token, 500);
+    const issuerId = req.body?.issuerId ?? req.body?.issuer_id;
+    const installments = Math.max(1, Number(req.body?.installments || 1));
+    const isPix = paymentMethodId === 'pix' || paymentMethodId === 'bank_transfer';
 
     if (!(amount > 0)) return res.status(400).json({ ok: false, message: 'Valor de recarga inválido.' });
     if (cpf.length !== 11) return res.status(400).json({ ok: false, message: 'CPF inválido.' });
     if (!cardNumber.startsWith('0362')) return res.status(400).json({ ok: false, message: 'Cartão não habilitado para recarga.' });
     if (!isEmail(email)) return res.status(400).json({ ok: false, message: 'Informe um e-mail válido para o pagamento.' });
+    if (!isPix && !token) return res.status(400).json({ ok: false, message: 'Não foi possível tokenizar o cartão.' });
 
-    // Confere novamente no servidor se o cartão realmente pertence ao CPF e é elegível.
     const tacom = await fetchTacomCards(cpf);
     const tacomRows = Array.isArray(tacom) ? tacom : (Array.isArray(tacom?.data) ? tacom.data : []);
     const validCard = tacomRows.some(x => String(x?.codigoExternoCartao || '') === cardNumber && cardNumber.startsWith('0362'));
     if (!validCard) return res.status(403).json({ ok: false, message: 'Cartão não localizado para este CPF.' });
 
     const correlationId = uuidv4();
-    const body = {
+    const base = {
       transaction_amount: amount,
       description: `Recarga cartão ${cardNumber}`,
-      payment_method_id: 'pix',
       external_reference: correlationId,
       payer: {
         email,
@@ -271,12 +282,31 @@ app.post('/api/mp/pay', async (req, res) => {
       },
       metadata: { cpf, card_number: cardNumber, correlation_id: correlationId }
     };
-    if (process.env.MP_WEBHOOK_URL) body.notification_url = process.env.MP_WEBHOOK_URL;
+    if (process.env.MP_WEBHOOK_URL) base.notification_url = process.env.MP_WEBHOOK_URL;
+
+    const body = isPix
+      ? { ...base, payment_method_id: 'pix' }
+      : {
+          ...base,
+          token,
+          payment_method_id: paymentMethodId,
+          installments,
+          capture: true,
+          ...(issuerId ? { issuer_id: issuerId } : {})
+        };
 
     const payment = await payments.create({
       body,
       requestOptions: { idempotencyKey: correlationId }
     });
+
+    const paymentType = String(payment?.payment_type_id || '').toLowerCase();
+    const paymentMethod = String(payment?.payment_method_id || paymentMethodId || '').toLowerCase();
+    const paymentMethodLabel =
+      isPix || paymentMethod === 'pix' || paymentType === 'bank_transfer'
+        ? 'PIX'
+        : (paymentType === 'credit_card' ? 'Cartão de Crédito'
+          : (paymentType === 'debit_card' ? 'Cartão de Débito' : 'Cartão'));
 
     await appendRecharge({
       requestedAt: new Date().toISOString(),
@@ -285,20 +315,25 @@ app.post('/api/mp/pay', async (req, res) => {
       paymentId: payment?.id,
       correlationId,
       reference: correlationId,
-      transactionId: payment?.id
+      transactionId: payment?.id,
+      paymentMethodLabel
     });
 
     res.json({
       ok: true,
       id: payment?.id,
       status: payment?.status,
+      status_detail: payment?.status_detail,
+      payment_type_id: payment?.payment_type_id,
+      payment_method_id: payment?.payment_method_id,
       correlationId,
       external_reference: correlationId,
       point_of_interaction: payment?.point_of_interaction || null
     });
   } catch (e) {
     console.error('[MP][pay]', e);
-    res.status(400).json({ ok: false, message: e?.message || 'Falha ao gerar o PIX.' });
+    const cause = e?.cause?.[0]?.description || e?.cause?.[0]?.message || e?.message || 'Falha ao processar o pagamento.';
+    res.status(400).json({ ok: false, message: cause });
   }
 });
 
