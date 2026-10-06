@@ -146,6 +146,9 @@
         <h2>Finalize sua recarga</h2>
         <div id="payment-summary" class="selected-card"></div>
         <div id="payment-brick"></div>
+        <div class="payment-actions">
+          <button class="btn ghost payment-back" type="button" data-back="3">Voltar</button>
+        </div>
         <div id="pix-box" hidden>
           <h3>PIX gerado</h3>
           <p class="muted">Leia o QR Code ou copie o código abaixo. Esta página confirma o pagamento automaticamente.</p>
@@ -153,7 +156,6 @@
           <div class="copy-row"><input id="pix-code" readonly><button id="copy-pix" class="btn primary" type="button">Copiar</button></div>
           <p id="pix-status" class="status">Aguardando pagamento…</p>
         </div>
-        <button class="btn ghost back payment-back" type="button" data-back="3">Voltar</button>
       </section>
 
       <section class="panel success" id="panel-success">
