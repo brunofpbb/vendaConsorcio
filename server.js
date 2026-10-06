@@ -1,0 +1,364 @@
+require('dotenv').config();
+
+const express = require('express');
+const path = require('path');
+const { google } = require('googleapis');
+const { v4: uuidv4 } = require('uuid');
+const { MercadoPagoConfig, Payment } = require('mercadopago');
+
+const app = express();
+const PORT = process.env.PORT || 8080;
+const PUBLIC_DIR = path.join(__dirname, 'public');
+
+app.set('trust proxy', 1);
+app.use(express.json({ limit: '1mb' }));
+app.use(express.static(PUBLIC_DIR));
+
+const onlyDigits = (v) => String(v ?? '').replace(/\D/g, '');
+const safeText = (v, max = 250) => String(v ?? '').trim().slice(0, max);
+const money = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
+
+/* ========================= TACOM ========================= */
+
+const TACOM_BASE_URL = (process.env.TACOM_BASE_URL || 'https://api.tacom.srv.br').replace(/\/$/, '');
+let tacomTokenCache = { token: '', expiresAt: 0 };
+let tacomLoginPromise = null;
+
+async function getTacomToken(force = false) {
+  const now = Date.now();
+  if (!force && tacomTokenCache.token && now < tacomTokenCache.expiresAt) {
+    return tacomTokenCache.token;
+  }
+  if (!force && tacomLoginPromise) return tacomLoginPromise;
+
+  tacomLoginPromise = (async () => {
+    const username = process.env.TACOM_USERNAME;
+    const password = process.env.TACOM_PASSWORD;
+    if (!username || !password) throw new Error('Credenciais TACOM não configuradas.');
+
+    const r = await fetch(`${TACOM_BASE_URL}/authentication/v1/auth2/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const raw = await r.text();
+    let j = {};
+    try { j = raw ? JSON.parse(raw) : {}; } catch (_) {}
+
+    if (!r.ok) throw new Error(j?.message || j?.mensagem || `Falha no login TACOM (${r.status})`);
+
+    const token = j.access_token || j.accessToken || j.token || j?.data?.access_token || j?.data?.accessToken;
+    if (!token) throw new Error('TACOM não retornou access_token.');
+
+    const expiresIn = Number(j.expires_in || j.expiresIn || 1800);
+    const ttlMs = Math.max(60, expiresIn - 60) * 1000;
+    tacomTokenCache = { token, expiresAt: Date.now() + ttlMs };
+    return token;
+  })();
+
+  try {
+    return await tacomLoginPromise;
+  } finally {
+    tacomLoginPromise = null;
+  }
+}
+
+async function fetchTacomCards(cpf, retry = true) {
+  const token = await getTacomToken();
+  const r = await fetch(`${TACOM_BASE_URL}/citsoa-cartao/v1/citsbe/cartao/${encodeURIComponent(cpf)}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }
+  });
+
+  if (r.status === 401 && retry) {
+    tacomTokenCache = { token: '', expiresAt: 0 };
+    await getTacomToken(true);
+    return fetchTacomCards(cpf, false);
+  }
+
+  const raw = await r.text();
+  let j = {};
+  try { j = raw ? JSON.parse(raw) : {}; } catch (_) {}
+  if (!r.ok) throw new Error(j?.mensagemDeErro || j?.message || `Falha na consulta TACOM (${r.status})`);
+  return j;
+}
+
+app.post('/api/cards/search', async (req, res) => {
+  try {
+    const cpf = onlyDigits(req.body?.cpf);
+    if (cpf.length !== 11) return res.status(400).json({ ok: false, message: 'Informe um CPF com 11 dígitos.' });
+
+    const result = await fetchTacomCards(cpf);
+    const source = Array.isArray(result) ? result : (Array.isArray(result?.data) ? result.data : []);
+    const cards = source
+      .filter(x => String(x?.codigoExternoCartao || '').startsWith('0362'))
+      .map(x => ({
+        cardNumber: safeText(x.codigoExternoCartao, 40),
+        name: safeText(x.nomeDependente || x.nome || '', 120),
+        cpf: onlyDigits(x.cpf || cpf),
+        email: safeText(x.email || '', 160),
+        phone: onlyDigits(x.telefone || ''),
+        balance: x.saldoCartao ?? null,
+        balanceDate: safeText(x.dataSaldo || '', 40)
+      }));
+
+    if (!cards.length) {
+      return res.status(404).json({
+        ok: false,
+        code: 'NO_ELIGIBLE_CARD',
+        message: 'Não encontramos cartão habilitado para recarga vinculado a este CPF.'
+      });
+    }
+
+    res.json({ ok: true, cards });
+  } catch (e) {
+    console.error('[TACOM]', e);
+    res.status(502).json({ ok: false, message: 'Não foi possível consultar os cartões agora. Tente novamente.' });
+  }
+});
+
+/* ====================== MERCADO PAGO ====================== */
+
+const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN || '';
+const MP_PUBLIC_KEY = process.env.MP_PUBLIC_KEY || '';
+const mp = MP_ACCESS_TOKEN ? new MercadoPagoConfig({ accessToken: MP_ACCESS_TOKEN }) : null;
+const payments = mp ? new Payment(mp) : null;
+
+app.get('/api/mp/pubkey', (_req, res) => res.json({ publicKey: MP_PUBLIC_KEY }));
+
+async function mpGetPayment(id) {
+  if (!payments) throw new Error('Mercado Pago não configurado.');
+  return payments.get({ id: String(id) });
+}
+
+/* ====================== GOOGLE SHEETS ====================== */
+
+const SHEET_HEADERS = [
+  'Data/hora Solicitação', 'At.', 'Nome', 'Telefone', 'Endereço de e-mail', 'CPF',
+  'Número do Cartão', 'Valor', 'Data/hora_Pagamento', 'Lançado?', 'Nome Pagador',
+  'CPF Pagador', 'ID Transação', 'correlationID', 'idURL', 'Referencia',
+  'Forma_Pagamento', 'idUser', 'Transação_ID'
+];
+
+function sheetsClient() {
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!raw) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON não configurado.');
+  const key = JSON.parse(raw);
+  const auth = new google.auth.JWT(
+    key.client_email,
+    null,
+    String(key.private_key || '').replace(/\\n/g, '\n'),
+    ['https://www.googleapis.com/auth/spreadsheets']
+  );
+  return google.sheets({ version: 'v4', auth });
+}
+
+async function ensureSheetHeader() {
+  const spreadsheetId = process.env.SHEETS_RECHARGE_ID;
+  const tab = process.env.SHEETS_RECHARGE_TAB || 'Recargas';
+  if (!spreadsheetId) throw new Error('SHEETS_RECHARGE_ID não configurado.');
+  const sheets = sheetsClient();
+  const r = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${tab}!A1:S1` });
+  const first = r.data.values?.[0] || [];
+  if (!first.length) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${tab}!A1:S1`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [SHEET_HEADERS] }
+    });
+  }
+}
+
+async function appendRecharge(row) {
+  await ensureSheetHeader();
+  const spreadsheetId = process.env.SHEETS_RECHARGE_ID;
+  const tab = process.env.SHEETS_RECHARGE_TAB || 'Recargas';
+  const sheets = sheetsClient();
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `${tab}!A:S`,
+    valueInputOption: 'USER_ENTERED',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: [[
+      row.requestedAt, '', row.name, row.phone, row.email, row.cpf,
+      row.cardNumber, row.amount, '', 'Não', row.payerName || row.name,
+      row.payerCpf || row.cpf, row.paymentId || '', row.correlationId,
+      '', row.reference, 'PIX', row.userId || '', row.transactionId || ''
+    ]] }
+  });
+}
+
+async function updateRechargeByCorrelation(correlationId, payment) {
+  const spreadsheetId = process.env.SHEETS_RECHARGE_ID;
+  const tab = process.env.SHEETS_RECHARGE_TAB || 'Recargas';
+  if (!spreadsheetId) return false;
+  const sheets = sheetsClient();
+  const r = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${tab}!A:S` });
+  const rows = r.data.values || [];
+  if (rows.length < 2) return false;
+  const header = rows[0];
+  const idxCorrelation = header.indexOf('correlationID');
+  if (idxCorrelation < 0) return false;
+
+  const rowIdx = rows.findIndex((row, i) => i > 0 && String(row[idxCorrelation] || '') === String(correlationId));
+  if (rowIdx < 1) return false;
+
+  const approved = ['approved', 'accredited'].includes(String(payment?.status || '').toLowerCase());
+  const paidAt = payment?.date_approved || (approved ? new Date().toISOString() : '');
+  const payerName = safeText(
+    [payment?.payer?.first_name, payment?.payer?.last_name].filter(Boolean).join(' ') || '',
+    120
+  );
+  const payerCpf = onlyDigits(payment?.payer?.identification?.number || '');
+
+  const values = [[
+    paidAt,
+    approved ? 'Sim' : 'Não',
+    payerName,
+    payerCpf,
+    String(payment?.id || ''),
+    correlationId,
+    '',
+    correlationId,
+    'PIX',
+    '',
+    String(payment?.id || '')
+  ]];
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${tab}!I${rowIdx + 1}:S${rowIdx + 1}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values }
+  });
+  return true;
+}
+
+app.post('/api/mp/pay', async (req, res) => {
+  try {
+    if (!payments || !MP_PUBLIC_KEY) return res.status(500).json({ ok: false, message: 'Mercado Pago não configurado.' });
+
+    const amount = money(req.body?.transactionAmount ?? req.body?.transaction_amount);
+    const cpf = onlyDigits(req.body?.cpf);
+    const cardNumber = safeText(req.body?.cardNumber, 40);
+    const email = safeText(req.body?.email, 160);
+    const name = safeText(req.body?.name, 120);
+    const phone = onlyDigits(req.body?.phone);
+
+    if (!(amount > 0)) return res.status(400).json({ ok: false, message: 'Valor de recarga inválido.' });
+    if (cpf.length !== 11) return res.status(400).json({ ok: false, message: 'CPF inválido.' });
+    if (!cardNumber.startsWith('0362')) return res.status(400).json({ ok: false, message: 'Cartão não habilitado para recarga.' });
+    if (!isEmail(email)) return res.status(400).json({ ok: false, message: 'Informe um e-mail válido para o pagamento.' });
+
+    // Confere novamente no servidor se o cartão realmente pertence ao CPF e é elegível.
+    const tacom = await fetchTacomCards(cpf);
+    const tacomRows = Array.isArray(tacom) ? tacom : (Array.isArray(tacom?.data) ? tacom.data : []);
+    const validCard = tacomRows.some(x => String(x?.codigoExternoCartao || '') === cardNumber && cardNumber.startsWith('0362'));
+    if (!validCard) return res.status(403).json({ ok: false, message: 'Cartão não localizado para este CPF.' });
+
+    const correlationId = uuidv4();
+    const body = {
+      transaction_amount: amount,
+      description: `Recarga cartão ${cardNumber}`,
+      payment_method_id: 'pix',
+      external_reference: correlationId,
+      payer: {
+        email,
+        first_name: name || undefined,
+        identification: { type: 'CPF', number: cpf }
+      },
+      metadata: { cpf, card_number: cardNumber, correlation_id: correlationId }
+    };
+    if (process.env.MP_WEBHOOK_URL) body.notification_url = process.env.MP_WEBHOOK_URL;
+
+    const payment = await payments.create({
+      body,
+      requestOptions: { idempotencyKey: correlationId }
+    });
+
+    await appendRecharge({
+      requestedAt: new Date().toISOString(),
+      name, phone, email, cpf, cardNumber, amount,
+      payerName: name, payerCpf: cpf,
+      paymentId: payment?.id,
+      correlationId,
+      reference: correlationId,
+      transactionId: payment?.id
+    });
+
+    res.json({
+      ok: true,
+      id: payment?.id,
+      status: payment?.status,
+      correlationId,
+      external_reference: correlationId,
+      point_of_interaction: payment?.point_of_interaction || null
+    });
+  } catch (e) {
+    console.error('[MP][pay]', e);
+    res.status(400).json({ ok: false, message: e?.message || 'Falha ao gerar o PIX.' });
+  }
+});
+
+app.get('/api/mp/payment-status', async (req, res) => {
+  try {
+    const id = safeText(req.query?.id, 60);
+    if (!id) return res.status(400).json({ ok: false, message: 'Pagamento não informado.' });
+    const p = await mpGetPayment(id);
+    res.json({ ok: true, id: p.id, status: p.status, status_detail: p.status_detail, date_approved: p.date_approved || null });
+  } catch (e) {
+    res.status(400).json({ ok: false, message: 'Falha ao consultar o pagamento.' });
+  }
+});
+
+const processedPayments = new Set();
+
+app.post('/api/mp/webhook', async (req, res) => {
+  // Responde rápido ao Mercado Pago; o processamento continua nesta execução.
+  try {
+    const topic = req.body?.type || req.query?.type;
+    const dataId = req.body?.data?.id || req.query?.['data.id'] || req.query?.id;
+    if (topic !== 'payment' || !dataId) return res.status(200).json({ ok: true, ignored: true });
+
+    const payment = await mpGetPayment(dataId);
+    const correlationId = safeText(payment?.external_reference, 100);
+    if (correlationId) await updateRechargeByCorrelation(correlationId, payment);
+
+    const approved = ['approved', 'accredited'].includes(String(payment?.status || '').toLowerCase());
+    if (approved && !processedPayments.has(String(payment.id))) {
+      const n8nUrl = process.env.N8N_PAYMENT_WEBHOOK_URL;
+      if (n8nUrl) {
+        const payload = {
+          event: 'recharge.payment.approved',
+          paymentId: String(payment.id),
+          correlationId,
+          amount: payment.transaction_amount,
+          status: payment.status,
+          paymentMethod: payment.payment_method_id,
+          approvedAt: payment.date_approved,
+          cpf: onlyDigits(payment?.metadata?.cpf || payment?.payer?.identification?.number),
+          cardNumber: safeText(payment?.metadata?.card_number, 40)
+        };
+        const headers = { 'Content-Type': 'application/json' };
+        if (process.env.N8N_WEBHOOK_SECRET) headers['X-Webhook-Secret'] = process.env.N8N_WEBHOOK_SECRET;
+
+        const nr = await fetch(n8nUrl, { method: 'POST', headers, body: JSON.stringify(payload) });
+        if (!nr.ok) throw new Error(`n8n respondeu ${nr.status}`);
+      }
+      processedPayments.add(String(payment.id));
+    }
+
+    res.status(200).json({ ok: true });
+  } catch (e) {
+    console.error('[MP][webhook]', e);
+    // 500 faz o provedor tentar novamente; o fluxo é idempotente por payment id/correlation id.
+    res.status(500).json({ ok: false });
+  }
+});
+
+app.get('/api/health', (_req, res) => res.json({ ok: true }));
+
+app.get('*', (_req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));
+
+app.listen(PORT, () => console.log(`Venda Consórcio ouvindo na porta ${PORT}`));
