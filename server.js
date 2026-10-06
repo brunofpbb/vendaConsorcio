@@ -94,21 +94,12 @@ async function fetchTacomCards(cpf, retry = true) {
   if (!r.ok) {
     console.error('[TACOM][cards]', {
       status: r.status,
-      cpf,
-      url,
-      authorizationHeader: 'Bearer [presente]',
-      body: raw.slice(0, 800)
+      body: raw.slice(0, 500)
     });
     const err = new Error(j?.mensagemDeErro || j?.message || j?.error || `Falha na consulta TACOM (${r.status})`);
     err.statusCode = r.status;
     throw err;
   }
-
-  console.log('[TACOM][cards] consulta OK', {
-    cpf,
-    url,
-    authorizationHeader: 'Bearer [presente]'
-  });
 
   return j;
 }
@@ -604,11 +595,6 @@ app.post('/api/mp/webhook', async (req, res) => {
       const responseText = await nr.text().catch(() => '');
       throw new Error(`n8n respondeu ${nr.status}: ${responseText.slice(0, 500)}`);
     }
-
-    console.log('[MP][Webhook] encaminhado ao n8n', {
-      type: topic,
-      paymentId: String(dataId)
-    });
 
     return res.status(200).json({ ok: true, forwarded: true });
   } catch (e) {
