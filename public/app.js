@@ -28,8 +28,23 @@ document.addEventListener('DOMContentLoaded', () => {
   function digits(v){ return String(v || '').replace(/\D/g, ''); }
   function brl(v){ return Number(v || 0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
   function escapeHtml(v){ return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c])); }
-  function showAlert(msg){ alertBox.textContent = msg; alertBox.hidden = false; }
-  function clearAlert(){ alertBox.hidden = true; alertBox.textContent = ''; }
+  let alertTimer = null;
+  function showAlert(msg){
+    if (alertTimer) clearTimeout(alertTimer);
+    alertBox.textContent = msg;
+    alertBox.hidden = false;
+    alertBox.classList.remove('leaving');
+    alertTimer = setTimeout(() => {
+      alertBox.classList.add('leaving');
+      setTimeout(clearAlert, 260);
+    }, 5000);
+  }
+  function clearAlert(){
+    if (alertTimer) { clearTimeout(alertTimer); alertTimer = null; }
+    alertBox.hidden = true;
+    alertBox.classList.remove('leaving');
+    alertBox.textContent = '';
+  }
 
   function go(step){
     clearAlert();
