@@ -79,7 +79,16 @@ async function fetchTacomCards(cpf, retry = true) {
   const raw = await r.text();
   let j = {};
   try { j = raw ? JSON.parse(raw) : {}; } catch (_) {}
-  if (!r.ok) throw new Error(j?.mensagemDeErro || j?.message || `Falha na consulta TACOM (${r.status})`);
+  if (!r.ok) {
+    console.error('[TACOM][cards]', {
+      status: r.status,
+      cpf,
+      body: raw.slice(0, 800)
+    });
+    const err = new Error(j?.mensagemDeErro || j?.message || j?.error || `Falha na consulta TACOM (${r.status})`);
+    err.statusCode = r.status;
+    throw err;
+  }
   return j;
 }
 
@@ -113,6 +122,13 @@ app.post('/api/cards/search', async (req, res) => {
     res.json({ ok: true, cards });
   } catch (e) {
     console.error('[TACOM]', e);
+    if (e?.statusCode === 404) {
+      return res.status(404).json({
+        ok: false,
+        code: 'TACOM_NOT_FOUND',
+        message: 'Não encontramos cartão habilitado para recarga vinculado a este CPF.'
+      });
+    }
     res.status(502).json({ ok: false, message: 'Não foi possível consultar os cartões agora. Tente novamente.' });
   }
 });
