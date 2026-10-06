@@ -54,14 +54,37 @@ document.addEventListener('DOMContentLoaded', () => {
     alertBox.textContent = '';
   }
 
-  function go(step){
+  function renderView(view){
     clearAlert();
-    $$('.panel').forEach(p => p.classList.remove('active'));
-    $$('.step').forEach(s => s.classList.toggle('active', Number(s.dataset.step) <= step));
-    const ids = {1:'#panel-cpf',2:'#panel-card',3:'#panel-value',4:'#panel-payment'};
-    $(ids[step])?.classList.add('active');
+    $('.panel').forEach(p => p.classList.remove('active'));
+
+    if(view === 'update'){
+      $('.step').forEach(s => s.classList.toggle('active', Number(s.dataset.step) <= 1));
+      $('#panel-update').classList.add('active');
+    }else{
+      const step = Number(view) || 1;
+      $('.step').forEach(s => s.classList.toggle('active', Number(s.dataset.step) <= step));
+      const ids = {1:'#panel-cpf',2:'#panel-card',3:'#panel-value',4:'#panel-payment'};
+      $(ids[step])?.classList.add('active');
+    }
+
     window.scrollTo({top: Math.max(0, $('.flow-card').offsetTop - 18), behavior:'smooth'});
   }
+
+  function go(view, pushHistory = true){
+    renderView(view);
+    if(pushHistory){
+      history.pushState({ rechargeView: view }, '', location.href);
+    }
+  }
+
+  history.replaceState({ rechargeView: 1 }, '', location.href);
+  window.addEventListener('popstate', e => {
+    const view = e.state?.rechargeView;
+    if(view !== undefined && view !== null){
+      renderView(view);
+    }
+  });
 
   $('#cpf').addEventListener('input', e => {
     const d = digits(e.target.value).slice(0,11);
@@ -75,9 +98,9 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="card-identification">
             <span class="card-label">Cartão Rota Real</span>
             <strong class="card-number">${escapeHtml(c.cardNumber)}</strong>
-            <span class="card-holder">${escapeHtml(c.name || 'Titular não informado')}</span>
+            <strong class="card-holder">${escapeHtml(c.name || 'Titular não informado')}</strong>
           </div>
-          <span class="select-pill">Selecionar →</span>
+          <span class="select-pill">Recarregar →</span>
         </div>
 
         <div class="card-option-bottom">
@@ -96,9 +119,6 @@ document.addEventListener('DOMContentLoaded', () => {
   function showUpdatePanel(){
     clearAlert();
     const c = state.cards[0] || {};
-    $('.panel').forEach(p => p.classList.remove('active'));
-    $('.step').forEach(s => s.classList.toggle('active', Number(s.dataset.step) <= 1));
-    $('#panel-update').classList.add('active');
     $('#update-name').textContent = c.name || 'Cliente';
     $('#update-cpf').textContent = 'CPF: ' + state.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
 
@@ -108,7 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     $('#update-email').value = validApiEmail ? c.email : '';
     $('#update-phone').value = digits(c.phone).length >= 10 ? c.phone : '';
-    window.scrollTo({top: Math.max(0, $('.flow-card').offsetTop - 18), behavior:'smooth'});
+    go('update');
   }
 
   $('#cpf-form').addEventListener('submit', async e => {
@@ -143,7 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
       : d.replace(/(\d{2})(\d{4})(\d{0,4})/, '($1) $2-$3');
   });
 
-  $('.back-update').addEventListener('click', () => go(1));
+  $('.back-update').addEventListener('click', () => history.back());
 
   $('#update-form').addEventListener('submit', async e => {
     e.preventDefault();
@@ -212,7 +232,7 @@ document.addEventListener('DOMContentLoaded', () => {
     go(3);
   });
 
-  $$('[data-back]').forEach(b => b.addEventListener('click', () => go(Number(b.dataset.back))));
+  $('[data-back]').forEach(b => b.addEventListener('click', () => history.back()));
 
   $('#amount').addEventListener('input', e => {
     let v = e.target.value.replace(/[^\d,]/g,'');
