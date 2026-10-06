@@ -27,16 +27,16 @@ a{color:inherit;text-decoration:none}
 .utility-bar{background:linear-gradient(90deg,#0b3270,#0d54bd);color:#fff}
 .utility-inner{
   max-width:1180px;
-  height:34px;
+  min-height:42px;
   margin:auto;
   padding:0 24px;
   display:flex;
   align-items:center;
   justify-content:space-between;
 }
-.social-links{display:flex;gap:18px;font-weight:800;font-size:14px}
+.social-links{display:flex;gap:22px;font-weight:900;font-size:18px}
 .social-links a{opacity:.95}
-.utility-contact{display:flex;gap:22px;font-size:11px;font-weight:700}
+.utility-contact{display:flex;gap:24px;font-size:13px;font-weight:800}
 .utility-contact a{display:flex;align-items:center;gap:6px}
 .utility-contact a:first-child{color:#fff}
 .utility-contact a:first-child::first-letter{color:var(--yellow)}
@@ -395,8 +395,54 @@ footer{
 }
 
 @media(max-width:880px){
-  .utility-contact span{display:none}
-  .site-nav{display:none}
+  .utility-inner{
+    min-height:48px;
+    padding:6px 16px;
+    gap:12px;
+  }
+  .social-links{gap:18px;font-size:20px}
+  .utility-contact{
+    gap:14px;
+    font-size:13px;
+    margin-left:auto;
+  }
+  .utility-contact a{
+    min-height:34px;
+    padding:0 6px;
+  }
+  .site-nav{
+    display:none;
+    position:absolute;
+    top:100%;
+    left:16px;
+    right:16px;
+    background:#fff;
+    border:1px solid #d9e3f1;
+    border-radius:14px;
+    box-shadow:0 18px 40px rgba(11,52,120,.18);
+    padding:12px;
+    z-index:50;
+    flex-direction:column;
+    align-items:stretch;
+    gap:4px;
+  }
+  .site-nav.open{display:flex}
+  .site-nav a{
+    min-height:46px;
+    padding:0 14px;
+    display:flex;
+    align-items:center;
+    border-radius:9px;
+    font-size:14px;
+  }
+  .site-nav a:not(.nav-outline):not(.nav-solid):hover{
+    background:#eef4ff;
+  }
+  .nav-outline,.nav-solid{
+    justify-content:flex-start;
+    min-height:46px;
+  }
+  .main-header{position:relative}
   .mobile-menu{display:block}
   .main-header-inner{min-height:88px}
   .brand img{width:210px;max-height:72px}
@@ -405,7 +451,20 @@ footer{
 }
 
 @media(max-width:760px){
-  .utility-inner{height:32px;padding:0 16px}
+  .utility-inner{
+    min-height:52px;
+    padding:7px 14px;
+    flex-wrap:wrap;
+  }
+  .social-links{font-size:20px}
+  .utility-contact{
+    font-size:12px;
+    gap:10px;
+  }
+  .utility-contact span{display:inline}
+  .utility-contact a{
+    padding:0 4px;
+  }
   .main-header-inner{padding:8px 16px;min-height:80px}
   .brand img{width:170px;max-height:64px}
   main{padding:12px 10px 36px}
