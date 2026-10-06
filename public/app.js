@@ -70,17 +70,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderCards(){
     $('#cards-list').innerHTML = state.cards.map((c,i) => `
-      <button class="card-option card-option-rich" type="button" data-card-index="${i}">
-        <div class="card-main">
-          <strong>${escapeHtml(c.cardNumber)}</strong>
-          <span>${escapeHtml(c.name || 'Cartão de usuário')}</span>
-          <div class="card-balance-inline">
-            <small>Saldo aproximado</small>
-            <b>${c.balance == null ? 'Não informado' : brl(c.balance)}</b>
+      <button class="card-option card-option-premium" type="button" data-card-index="${i}">
+        <div class="card-option-top">
+          <div class="card-identification">
+            <span class="card-label">Cartão Rota Real</span>
+            <strong class="card-number">${escapeHtml(c.cardNumber)}</strong>
+            <span class="card-holder">${escapeHtml(c.name || 'Titular não informado')}</span>
           </div>
-          <small class="balance-date">Atualizado em: ${escapeHtml(formatBalanceDate(c.balanceDate))}</small>
+          <span class="select-pill">Selecionar →</span>
         </div>
-        <em>Selecionar →</em>
+
+        <div class="card-option-bottom">
+          <div class="balance-box">
+            <span>Saldo aproximado</span>
+            <strong>${c.balance == null ? 'Não informado' : brl(c.balance)}</strong>
+          </div>
+          <div class="balance-update">
+            <span>Atualizado em</span>
+            <strong>${escapeHtml(formatBalanceDate(c.balanceDate))}</strong>
+          </div>
+        </div>
       </button>`).join('');
   }
 
