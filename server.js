@@ -129,7 +129,11 @@ app.post('/api/cards/search', async (req, res) => {
         email: safeText(x.email || '', 160),
         phone: onlyDigits(x.telefone || ''),
         balance: x.saldoCartao ?? null,
-        balanceDate: safeText(x.dataSaldo || '', 40)
+        balanceDate: safeText(x.dataSaldo || '', 40),
+        contactUpdateRequired:
+          !isEmail(safeText(x.email || '', 160)) ||
+          safeText(x.email || '', 160).toLowerCase() === 'recepcao@turintransportes.com.br' ||
+          onlyDigits(x.telefone || '').length < 10
       }));
 
     if (!cards.length) {
@@ -151,6 +155,92 @@ app.post('/api/cards/search', async (req, res) => {
       });
     }
     res.status(502).json({ ok: false, message: 'Não foi possível consultar os cartões agora. Tente novamente.' });
+  }
+});
+
+/* ================= ATUALIZAÇÃO CADASTRAL ================= */
+
+async function appendCustomerRegistration({ cpf, name, phone, email, cards }) {
+  const spreadsheetId = process.env.SHEETS_RECHARGE_ID;
+  if (!spreadsheetId) throw new Error('SHEETS_RECHARGE_ID não configurado.');
+
+  const sheets = sheetsClient();
+  const tab = safeText(process.env.SHEETS_CUSTOMERS_TAB || 'Clientes_Cadastrados', 120);
+
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties.title'
+  });
+  const titles = (meta.data.sheets || []).map(x => x?.properties?.title).filter(Boolean);
+  if (!titles.includes(tab)) {
+    throw new Error(`Aba de clientes "${tab}" não encontrada na planilha.`);
+  }
+
+  const cardList = Array.isArray(cards) && cards.length ? cards : [''];
+  const now = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: sheetRange(tab, 'A:F'),
+    valueInputOption: 'USER_ENTERED',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: {
+      values: cardList.map(cardNumber => [
+        now,
+        safeText(name, 120),
+        onlyDigits(phone),
+        safeText(email, 160),
+        onlyDigits(cpf),
+        safeText(cardNumber, 40)
+      ])
+    }
+  });
+}
+
+app.post('/api/customer/update', async (req, res) => {
+  try {
+    const cpf = onlyDigits(req.body?.cpf);
+    const email = safeText(req.body?.email, 160).toLowerCase();
+    const phone = onlyDigits(req.body?.phone);
+
+    if (cpf.length !== 11) {
+      return res.status(400).json({ ok: false, message: 'CPF inválido.' });
+    }
+    if (!isEmail(email) || email === 'recepcao@turintransportes.com.br') {
+      return res.status(400).json({ ok: false, message: 'Informe um e-mail válido.' });
+    }
+    if (phone.length < 10 || phone.length > 11) {
+      return res.status(400).json({ ok: false, message: 'Informe um telefone válido com DDD.' });
+    }
+
+    // Revalida o CPF/cartões diretamente na TACOM antes de gravar no Sheets.
+    const tacom = await fetchTacomCards(cpf);
+    const rows = Array.isArray(tacom) ? tacom : (Array.isArray(tacom?.data) ? tacom.data : []);
+    const eligible = rows.filter(x => String(x?.codigoExternoCartao || '').startsWith('0362'));
+
+    if (!eligible.length) {
+      return res.status(404).json({
+        ok: false,
+        message: 'Não encontramos cartão habilitado para este CPF.'
+      });
+    }
+
+    const name = safeText(eligible[0]?.nomeDependente || eligible[0]?.nome || '', 120);
+    const cards = eligible.map(x => safeText(x.codigoExternoCartao, 40));
+
+    await appendCustomerRegistration({ cpf, name, phone, email, cards });
+
+    return res.json({
+      ok: true,
+      customer: { cpf, name, phone, email },
+      cards
+    });
+  } catch (e) {
+    console.error('[Customer update]', e);
+    return res.status(500).json({
+      ok: false,
+      message: 'Não foi possível salvar a atualização cadastral. Tente novamente.'
+    });
   }
 });
 
