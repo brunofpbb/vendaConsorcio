@@ -94,6 +94,29 @@
         </form>
       </section>
 
+      <section class="panel" id="panel-update">
+        <span class="kicker">ATUALIZAÇÃO CADASTRAL</span>
+        <h2>Atualize seus dados para continuar</h2>
+        <p class="muted">Precisamos de um e-mail e telefone válidos para identificar o pagamento e manter seu cadastro atualizado.</p>
+
+        <div class="customer-summary">
+          <strong id="update-name"></strong>
+          <span id="update-cpf"></span>
+        </div>
+
+        <form id="update-form">
+          <label for="update-email">E-mail</label>
+          <input id="update-email" type="email" autocomplete="email" placeholder="voce@email.com" required>
+
+          <label for="update-phone">Telefone com DDD</label>
+          <input id="update-phone" inputmode="tel" autocomplete="tel" maxlength="15" placeholder="(31) 99999-9999" required>
+
+          <button class="btn primary" type="submit">Salvar e continuar</button>
+        </form>
+
+        <button class="btn ghost back-update" type="button">Voltar</button>
+      </section>
+
       <section class="panel" id="panel-card">
         <span class="kicker">SEU CARTÃO</span>
         <h2>Escolha o cartão para recarga</h2>
