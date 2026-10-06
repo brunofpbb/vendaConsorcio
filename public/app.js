@@ -56,14 +56,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderView(view){
     clearAlert();
-    $('.panel').forEach(p => p.classList.remove('active'));
+    $$('.panel').forEach(p => p.classList.remove('active'));
 
     if(view === 'update'){
-      $('.step').forEach(s => s.classList.toggle('active', Number(s.dataset.step) <= 1));
+      $$('.step').forEach(s => s.classList.toggle('active', Number(s.dataset.step) <= 1));
       $('#panel-update').classList.add('active');
     }else{
       const step = Number(view) || 1;
-      $('.step').forEach(s => s.classList.toggle('active', Number(s.dataset.step) <= step));
+      $$('.step').forEach(s => s.classList.toggle('active', Number(s.dataset.step) <= step));
       const ids = {1:'#panel-cpf',2:'#panel-card',3:'#panel-value',4:'#panel-payment'};
       $(ids[step])?.classList.add('active');
     }
@@ -232,7 +232,7 @@ document.addEventListener('DOMContentLoaded', () => {
     go(3);
   });
 
-  $('[data-back]').forEach(b => b.addEventListener('click', () => history.back()));
+  $$('[data-back]').forEach(b => b.addEventListener('click', () => history.back()));
 
   $('#amount').addEventListener('input', e => {
     let v = e.target.value.replace(/[^\d,]/g,'');
@@ -320,7 +320,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const status = String(j.status || '').toLowerCase();
 
             if(status === 'approved'){
-              $$('.panel').forEach(p=>p.classList.remove('active'));
+              $$$('.panel').forEach(p=>p.classList.remove('active'));
               $('#panel-success').classList.add('active');
               return;
             }
@@ -378,7 +378,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if(['approved','accredited'].includes(st)){
           clearInterval(timer);
           $('#pix-status').textContent='Pagamento confirmado!';
-          $$('.panel').forEach(p=>p.classList.remove('active'));
+          $$$('.panel').forEach(p=>p.classList.remove('active'));
           $('#panel-success').classList.add('active');
           return;
         }
