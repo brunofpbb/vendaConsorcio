@@ -89,31 +89,68 @@ document.addEventListener('DOMContentLoaded', () => {
       state.mpController = await bricks.create('payment','payment-brick',{
         initialization:{ amount: state.amount },
         customization:{
-          paymentMethods:{ bankTransfer:['pix'] },
+          paymentMethods:{ bankTransfer:['pix'], creditCard:'all', debitCard:'all' },
           visual:{ style:{ theme:'default' } }
         },
         callbacks:{
           onReady:()=>{},
           onError:(err)=>{ console.error('[MP Brick]',err); showAlert('Não foi possível carregar o pagamento.'); },
-          onSubmit: async ({selectedPaymentMethod}) => {
-            // Este fluxo de recarga é PIX. O Brick é usado para manter o mesmo padrão do site de vendas.
-            if(selectedPaymentMethod && String(selectedPaymentMethod).toLowerCase() !== 'bank_transfer' && String(selectedPaymentMethod).toLowerCase() !== 'pix'){
-              showAlert('Para esta recarga, selecione PIX.');
-              throw new Error('Método não permitido');
-            }
+          onSubmit: async ({selectedPaymentMethod, formData}) => {
+            clearAlert();
+            const method = String(selectedPaymentMethod || '').toLowerCase();
+            const isPix = method === 'bank_transfer' ||
+              String(formData?.payment_method_id || '').toLowerCase() === 'pix';
+
+            const payload = {
+              paymentMethodId: isPix ? 'pix' : formData?.payment_method_id,
+              transactionAmount: state.amount,
+              cpf: state.cpf,
+              cardNumber: state.card.cardNumber,
+              name: state.card.name,
+              email: state.email || formData?.payer?.email || '',
+              phone: state.phone,
+              token: isPix ? undefined : formData?.token,
+              issuerId: isPix ? undefined : formData?.issuer_id,
+              installments: isPix ? undefined : Number(formData?.installments || 1)
+            };
+
             const r = await fetch('/api/mp/pay',{
-              method:'POST', headers:{'Content-Type':'application/json'},
-              body:JSON.stringify({
-                paymentMethodId:'pix', transactionAmount:state.amount,
-                cpf:state.cpf, cardNumber:state.card.cardNumber,
-                name:state.card.name, email:state.email, phone:state.phone
-              })
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body:JSON.stringify(payload)
             });
             const j = await r.json();
-            if(!r.ok) { showAlert(j.message || 'Falha ao gerar o PIX.'); throw new Error(j.message || 'Falha'); }
+            if(!r.ok) {
+              showAlert(j.message || 'Falha ao processar o pagamento.');
+              throw new Error(j.message || 'Falha ao processar o pagamento.');
+            }
+
             state.paymentId = j.id;
-            showPix(j);
-            startPolling(j.id);
+            const status = String(j.status || '').toLowerCase();
+
+            if(status === 'approved'){
+              $$('.panel').forEach(p=>p.classList.remove('active'));
+              $('#panel-success').classList.add('active');
+              return;
+            }
+
+            const pix = j?.point_of_interaction?.transaction_data;
+            if(pix?.qr_code || pix?.qr_code_base64){
+              showPix(j);
+              startPolling(j.id);
+              return;
+            }
+
+            if(['in_process','pending','authorized'].includes(status)){
+              $('#pix-box').hidden = false;
+              $('#pix-qr').style.display = 'none';
+              $('.copy-row').style.display = 'none';
+              $('#pix-status').textContent = 'Pagamento em processamento. Aguarde a confirmação.';
+              startPolling(j.id);
+              return;
+            }
+
+            showAlert('Pagamento não aprovado: ' + (j.status_detail || j.status || 'verifique os dados informados.'));
           }
         }
       });
@@ -124,6 +161,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const tx = p?.point_of_interaction?.transaction_data || {};
     const qrBase64 = tx.qr_code_base64;
     const code = tx.qr_code || '';
+    $('#pix-qr').style.display = '';
+    $('.copy-row').style.display = '';
     if(qrBase64) $('#pix-qr').src = `data:image/png;base64,${qrBase64}`;
     $('#pix-code').value = code;
     $('#pix-box').hidden = false;
