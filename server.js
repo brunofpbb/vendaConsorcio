@@ -267,6 +267,20 @@ const SHEET_HEADERS = [
   'Forma_Pagamento', 'idUser', 'Transação_ID'
 ];
 
+function nowBr() {
+  return new Date().toLocaleString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false
+  });
+}
+
+const asSheetText = value => {
+  const v = String(value ?? '');
+  return v ? `'${v}` : '';
+};
+
 function sheetsClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!raw) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON não configurado.');
@@ -345,10 +359,25 @@ async function appendRecharge(row) {
     valueInputOption: 'USER_ENTERED',
     insertDataOption: 'INSERT_ROWS',
     requestBody: { values: [[
-      row.requestedAt, '', row.name, row.phone, row.email, row.cpf,
-      row.cardNumber, row.amount, '', 'Não', row.payerName || row.name,
-      row.payerCpf || row.cpf, row.paymentId || '', row.correlationId,
-      '', row.reference, row.paymentMethodLabel || '', row.userId || '', row.transactionId || ''
+      row.requestedAt || nowBr(),
+      '',
+      row.name,
+      asSheetText(row.phone),
+      row.email,
+      asSheetText(row.cpf),
+      asSheetText(String(row.cardNumber || '').slice(0, -1)),
+      asSheetText(Number(row.amount || 0).toFixed(2).replace('.', ',')),
+      '',
+      '',
+      row.payerName || row.name,
+      asSheetText(row.payerCpf || row.cpf),
+      row.paymentId || '',
+      row.correlationId,
+      '',
+      row.reference,
+      row.paymentMethodLabel || '',
+      row.userId || '',
+      row.transactionId || ''
     ]] }
   });
 }
@@ -464,7 +493,7 @@ app.post('/api/mp/pay', async (req, res) => {
     // A solicitação nasce no Sheets antes do pagamento.
     // Assim o correlationID já existe na planilha quando o Mercado Pago/notificação chegar.
     await appendRecharge({
-      requestedAt: new Date().toISOString(),
+      requestedAt: nowBr(),
       name, phone, email, cpf, cardNumber, amount,
       payerName: name, payerCpf: cpf,
       paymentId: '',
@@ -525,49 +554,40 @@ app.post('/api/mp/webhook', async (req, res) => {
       return res.status(200).json({ ok: true, ignored: true });
     }
 
-    // Consulta o pagamento apenas para validar a notificação e registrar a correlação.
-    // A atualização das colunas de pagamento no Sheets continua sendo responsabilidade do n8n.
-    const payment = await mpGetPayment(dataId);
-    const correlationId = safeText(payment?.external_reference, 100);
-
-    console.log('[MP][Webhook]', {
-      paymentId: String(payment?.id || dataId),
-      status: payment?.status,
-      correlationId
-    });
-
     const n8nUrl = process.env.N8N_PAYMENT_WEBHOOK_URL;
-    if (n8nUrl) {
-      // Mantém um payload compatível com a notificação do Mercado Pago
-      // e acrescenta dados úteis já resolvidos pelo nosso backend.
-      const payload = {
-        ...(req.body || {}),
-        type: topic,
-        data: { ...(req.body?.data || {}), id: String(dataId) },
-        payment: {
-          id: String(payment?.id || dataId),
-          status: payment?.status || null,
-          status_detail: payment?.status_detail || null,
-          external_reference: correlationId || null,
-          transaction_amount: payment?.transaction_amount ?? null,
-          payment_method_id: payment?.payment_method_id || null,
-          payment_type_id: payment?.payment_type_id || null,
-          date_approved: payment?.date_approved || null
-        }
-      };
-
-      const nr = await fetch(n8nUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!nr.ok) {
-        throw new Error(`n8n respondeu ${nr.status}`);
-      }
+    if (!n8nUrl) {
+      console.warn('[MP][Webhook] N8N_PAYMENT_WEBHOOK_URL não configurada.');
+      return res.status(200).json({ ok: true, forwarded: false });
     }
 
-    return res.status(200).json({ ok: true });
+    // Encaminha para o n8n no mesmo formato em que o Webhook node do n8n
+    // recebia diretamente do Mercado Pago.
+    const forwardedItem = {
+      headers: req.headers || {},
+      params: req.params || {},
+      query: req.query || {},
+      body: req.body || {},
+      webhookUrl: n8nUrl,
+      executionMode: 'production'
+    };
+
+    const nr = await fetch(n8nUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(forwardedItem)
+    });
+
+    if (!nr.ok) {
+      const responseText = await nr.text().catch(() => '');
+      throw new Error(`n8n respondeu ${nr.status}: ${responseText.slice(0, 500)}`);
+    }
+
+    console.log('[MP][Webhook] encaminhado ao n8n', {
+      type: topic,
+      paymentId: String(dataId)
+    });
+
+    return res.status(200).json({ ok: true, forwarded: true });
   } catch (e) {
     console.error('[MP][webhook]', e);
     return res.status(500).json({ ok: false });
