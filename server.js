@@ -190,31 +190,68 @@ function sheetsClient() {
   return google.sheets({ version: 'v4', auth });
 }
 
+let resolvedRechargeTab = null;
+
+async function getRechargeTab(sheets, spreadsheetId) {
+  if (resolvedRechargeTab) return resolvedRechargeTab;
+
+  const configured = safeText(process.env.SHEETS_RECHARGE_TAB || 'Recargas', 120);
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'sheets.properties.title'
+  });
+
+  const titles = (meta.data.sheets || [])
+    .map(x => x?.properties?.title)
+    .filter(Boolean);
+
+  if (!titles.length) throw new Error('A planilha não possui nenhuma aba.');
+
+  if (titles.includes(configured)) {
+    resolvedRechargeTab = configured;
+  } else {
+    resolvedRechargeTab = titles[0];
+    console.warn('[Sheets] Aba configurada não encontrada; usando a primeira aba.', {
+      configured,
+      resolved: resolvedRechargeTab
+    });
+  }
+
+  return resolvedRechargeTab;
+}
+
+const sheetRange = (tab, range) => `'${String(tab).replace(/'/g, "''")}'!${range}`;
+
 async function ensureSheetHeader() {
   const spreadsheetId = process.env.SHEETS_RECHARGE_ID;
-  const tab = process.env.SHEETS_RECHARGE_TAB || 'Recargas';
   if (!spreadsheetId) throw new Error('SHEETS_RECHARGE_ID não configurado.');
+
   const sheets = sheetsClient();
-  const r = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${tab}!A1:S1` });
+  const tab = await getRechargeTab(sheets, spreadsheetId);
+  const r = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: sheetRange(tab, 'A1:S1')
+  });
+
   const first = r.data.values?.[0] || [];
   if (!first.length) {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${tab}!A1:S1`,
+      range: sheetRange(tab, 'A1:S1'),
       valueInputOption: 'RAW',
       requestBody: { values: [SHEET_HEADERS] }
     });
   }
+
+  return { sheets, spreadsheetId, tab };
 }
 
 async function appendRecharge(row) {
-  await ensureSheetHeader();
-  const spreadsheetId = process.env.SHEETS_RECHARGE_ID;
-  const tab = process.env.SHEETS_RECHARGE_TAB || 'Recargas';
-  const sheets = sheetsClient();
+  const { sheets, spreadsheetId, tab } = await ensureSheetHeader();
+
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${tab}!A:S`,
+    range: sheetRange(tab, 'A:S'),
     valueInputOption: 'USER_ENTERED',
     insertDataOption: 'INSERT_ROWS',
     requestBody: { values: [[
@@ -228,10 +265,10 @@ async function appendRecharge(row) {
 
 async function updateRechargeByCorrelation(correlationId, payment) {
   const spreadsheetId = process.env.SHEETS_RECHARGE_ID;
-  const tab = process.env.SHEETS_RECHARGE_TAB || 'Recargas';
   if (!spreadsheetId) return false;
   const sheets = sheetsClient();
-  const r = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${tab}!A:S` });
+  const tab = await getRechargeTab(sheets, spreadsheetId);
+  const r = await sheets.spreadsheets.values.get({ spreadsheetId, range: sheetRange(tab, 'A:S') });
   const rows = r.data.values || [];
   if (rows.length < 2) return false;
   const header = rows[0];
@@ -273,7 +310,7 @@ async function updateRechargeByCorrelation(correlationId, payment) {
 
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${tab}!I${rowIdx + 1}:S${rowIdx + 1}`,
+    range: sheetRange(tab, `I${rowIdx + 1}:S${rowIdx + 1}`),
     valueInputOption: 'USER_ENTERED',
     requestBody: { values }
   });
@@ -332,6 +369,21 @@ app.post('/api/mp/pay', async (req, res) => {
           ...(issuerId ? { issuer_id: issuerId } : {})
         };
 
+    const requestedPaymentMethodLabel = isPix ? 'PIX' : 'Cartão';
+
+    // A solicitação nasce no Sheets antes do pagamento.
+    // Assim o correlationID já existe na planilha quando o Mercado Pago/notificação chegar.
+    await appendRecharge({
+      requestedAt: new Date().toISOString(),
+      name, phone, email, cpf, cardNumber, amount,
+      payerName: name, payerCpf: cpf,
+      paymentId: '',
+      correlationId,
+      reference: correlationId,
+      transactionId: '',
+      paymentMethodLabel: requestedPaymentMethodLabel
+    });
+
     const payment = await payments.create({
       body,
       requestOptions: { idempotencyKey: correlationId }
@@ -344,17 +396,6 @@ app.post('/api/mp/pay', async (req, res) => {
         ? 'PIX'
         : (paymentType === 'credit_card' ? 'Cartão de Crédito'
           : (paymentType === 'debit_card' ? 'Cartão de Débito' : 'Cartão'));
-
-    await appendRecharge({
-      requestedAt: new Date().toISOString(),
-      name, phone, email, cpf, cardNumber, amount,
-      payerName: name, payerCpf: cpf,
-      paymentId: payment?.id,
-      correlationId,
-      reference: correlationId,
-      transactionId: payment?.id,
-      paymentMethodLabel
-    });
 
     res.json({
       ok: true,
