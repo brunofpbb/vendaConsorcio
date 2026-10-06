@@ -35,7 +35,24 @@ a{color:inherit;text-decoration:none}
   justify-content:space-between;
 }
 .social-links{display:flex;gap:22px;font-weight:900;font-size:18px}
-.social-links a{opacity:.95}
+.social-links a{
+  opacity:.95;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+}
+.social-icon{
+  width:18px;
+  height:18px;
+  display:block;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:2;
+}
+.instagram-dot{
+  fill:currentColor;
+  stroke:none;
+}
 .utility-contact{display:flex;gap:24px;font-size:13px;font-weight:800}
 .utility-contact a{display:flex;align-items:center;gap:6px}
 .utility-contact a:first-child{color:#fff}
