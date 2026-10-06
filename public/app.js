@@ -27,6 +27,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function digits(v){ return String(v || '').replace(/\D/g, ''); }
   function brl(v){ return Number(v || 0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+  function formatBalanceDate(v){
+    const raw = String(v || '').trim();
+    if(!raw) return 'Não informada';
+    const m = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}:\d{2}:\d{2}))?/);
+    if(m) return m[4] ? `${m[1]}/${m[2]}/${m[3]} ${m[4]}` : `${m[1]}/${m[2]}/${m[3]}`;
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? raw : d.toLocaleString('pt-BR');
+  }
   function escapeHtml(v){ return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c])); }
   let alertTimer = null;
   function showAlert(msg){
@@ -71,8 +79,16 @@ document.addEventListener('DOMContentLoaded', () => {
       if(!r.ok) throw new Error(j.message || 'Cadastro não encontrado.');
       state.cpf = cpf; state.cards = j.cards || [];
       $('#cards-list').innerHTML = state.cards.map((c,i) => `
-        <button class="card-option" type="button" data-card-index="${i}">
-          <div><strong>${escapeHtml(c.cardNumber)}</strong><span>${escapeHtml(c.name || 'Cartão de usuário')}</span></div>
+        <button class="card-option card-option-rich" type="button" data-card-index="${i}">
+          <div class="card-main">
+            <strong>${escapeHtml(c.cardNumber)}</strong>
+            <span>${escapeHtml(c.name || 'Cartão de usuário')}</span>
+            <div class="card-balance-inline">
+              <small>Saldo aproximado</small>
+              <b>${c.balance == null ? 'Não informado' : brl(c.balance)}</b>
+            </div>
+            <small class="balance-date">Atualizado em: ${escapeHtml(formatBalanceDate(c.balanceDate))}</small>
+          </div>
           <em>Selecionar →</em>
         </button>`).join('');
       go(2);
@@ -83,7 +99,20 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#cards-list').addEventListener('click', e => {
     const btn = e.target.closest('[data-card-index]'); if(!btn) return;
     state.card = state.cards[Number(btn.dataset.cardIndex)];
-    $('#selected-card').innerHTML = `<b>Cartão ${escapeHtml(state.card.cardNumber)}</b><br><span>${escapeHtml(state.card.name || '')}</span>`;
+    $('#selected-card').innerHTML = `
+      <div class="selected-card-head">
+        <div>
+          <b>Cartão ${escapeHtml(state.card.cardNumber)}</b>
+          <span>${escapeHtml(state.card.name || '')}</span>
+        </div>
+      </div>
+      <div class="balance-highlight">
+        <span>Saldo aproximado do cartão</span>
+        <strong>${state.card.balance == null ? 'Não informado' : brl(state.card.balance)}</strong>
+        <small>Saldo atualizado em: ${escapeHtml(formatBalanceDate(state.card.balanceDate))}</small>
+      </div>
+      <p class="balance-note">O saldo refere-se às cargas já transferidas para o cartão. Pagamentos recentes podem ainda não aparecer e o saldo será atualizado quando o cartão for utilizado no veículo.</p>
+    `;
     $('#email').value = state.card.email || '';
     $('#phone').value = state.card.phone || '';
     go(3);
@@ -123,7 +152,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const bricks = mp.bricks();
 
       state.mpController = await bricks.create('payment','payment-brick',{
-        initialization:{ amount: state.amount },
+        initialization:{
+          amount: state.amount,
+          payer:{
+            email: state.email || '',
+            entityType: 'individual'
+          }
+        },
         customization:{
           paymentMethods:{ bankTransfer:['pix'], creditCard:'all', debitCard:'all' },
           visual:{ style:{ theme:'default' } }
