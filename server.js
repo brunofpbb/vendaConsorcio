@@ -212,17 +212,18 @@ async function updateRechargeByCorrelation(correlationId, payment) {
   );
   const payerCpf = onlyDigits(payment?.payer?.identification?.number || '');
 
+  const current = rows[rowIdx] || [];
   const values = [[
     paidAt,
-    approved ? 'Sim' : 'Não',
-    payerName,
-    payerCpf,
+    current[9] || 'Não', // "Lançado?" é responsabilidade do fluxo de recarga/n8n
+    payerName || current[10] || '',
+    payerCpf || current[11] || '',
     String(payment?.id || ''),
     correlationId,
-    '',
-    correlationId,
+    current[14] || '',
+    current[15] || correlationId,
     'PIX',
-    '',
+    current[17] || '',
     String(payment?.id || '')
   ]];
 
