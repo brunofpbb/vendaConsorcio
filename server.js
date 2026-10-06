@@ -66,29 +66,57 @@ async function getTacomToken(force = false) {
 
 async function fetchTacomCards(cpf, retry = true) {
   const token = await getTacomToken();
-  const r = await fetch(`${TACOM_BASE_URL}/citsoa-cartao/v1/citsbe/cartao/${encodeURIComponent(cpf)}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }
-  });
 
-  if (r.status === 401 && retry) {
+  async function callCards(url) {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }
+    });
+    const raw = await response.text();
+    let json = {};
+    try { json = raw ? JSON.parse(raw) : {}; } catch (_) {}
+    return { response, raw, json, url };
+  }
+
+  // A TACOM pode diferenciar a rota com e sem "/" final.
+  // Tentamos primeiro exatamente com a barra após o CPF.
+  const withSlash = `${TACOM_BASE_URL}/citsoa-cartao/v1/citsbe/cartao/${encodeURIComponent(cpf)}/`;
+  const withoutSlash = `${TACOM_BASE_URL}/citsoa-cartao/v1/citsbe/cartao/${encodeURIComponent(cpf)}`;
+
+  let result = await callCards(withSlash);
+
+  if (result.response.status === 401 && retry) {
     tacomTokenCache = { token: '', expiresAt: 0 };
     await getTacomToken(true);
     return fetchTacomCards(cpf, false);
   }
 
-  const raw = await r.text();
-  let j = {};
-  try { j = raw ? JSON.parse(raw) : {}; } catch (_) {}
+  // Fallback sem barra apenas se a variante com barra não existir.
+  if (result.response.status === 404) {
+    const fallback = await callCards(withoutSlash);
+    if (fallback.response.status !== 404) result = fallback;
+  }
+
+  const { response: r, raw, json: j, url } = result;
+
   if (!r.ok) {
     console.error('[TACOM][cards]', {
       status: r.status,
       cpf,
+      url,
+      authorizationHeader: 'Bearer [presente]',
       body: raw.slice(0, 800)
     });
     const err = new Error(j?.mensagemDeErro || j?.message || j?.error || `Falha na consulta TACOM (${r.status})`);
     err.statusCode = r.status;
     throw err;
   }
+
+  console.log('[TACOM][cards] consulta OK', {
+    cpf,
+    url,
+    authorizationHeader: 'Bearer [presente]'
+  });
+
   return j;
 }
 
