@@ -254,7 +254,13 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         },
         customization:{
-          paymentMethods:{ bankTransfer:['pix'], creditCard:'all', debitCard:'all' },
+          paymentMethods:{
+            bankTransfer:['pix'],
+            creditCard:'all',
+            debitCard:'all',
+            minInstallments:1,
+            maxInstallments:1
+          },
           visual:{ style:{ theme:'default' } }
         },
         callbacks:{
@@ -276,7 +282,7 @@ document.addEventListener('DOMContentLoaded', () => {
               phone: state.phone,
               token: isPix ? undefined : formData?.token,
               issuerId: isPix ? undefined : formData?.issuer_id,
-              installments: isPix ? undefined : Number(formData?.installments || 1)
+              installments: isPix ? undefined : 1
             };
 
             const r = await fetch('/api/mp/pay',{
