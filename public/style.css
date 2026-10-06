@@ -562,3 +562,14 @@ footer{
   .card-option-rich em{align-self:flex-end}
   .balance-highlight strong{font-size:28px}
 }
+
+.customer-summary{
+  margin:16px 0 18px;
+  padding:14px 16px;
+  border-radius:12px;
+  background:var(--blue-soft);
+  border:1px solid #cfddf1;
+}
+.customer-summary strong,.customer-summary span{display:block}
+.customer-summary strong{font-size:16px;color:#173c79}
+.customer-summary span{font-size:13px;color:var(--muted);margin-top:3px}
