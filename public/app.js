@@ -4,6 +4,27 @@ document.addEventListener('DOMContentLoaded', () => {
   const $$ = (s) => [...document.querySelectorAll(s)];
   const alertBox = $('#alert');
 
+  const mobileMenu = document.querySelector('.mobile-menu');
+  const siteNav = document.querySelector('.site-nav');
+  if (mobileMenu && siteNav) {
+    mobileMenu.addEventListener('click', () => {
+      const open = siteNav.classList.toggle('open');
+      mobileMenu.classList.toggle('open', open);
+      mobileMenu.setAttribute('aria-expanded', open ? 'true' : 'false');
+      mobileMenu.textContent = open ? '✕' : '☰';
+    });
+
+    siteNav.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        siteNav.classList.remove('open');
+        mobileMenu.classList.remove('open');
+        mobileMenu.setAttribute('aria-expanded', 'false');
+        mobileMenu.textContent = '☰';
+      });
+    });
+  }
+
+
   function digits(v){ return String(v || '').replace(/\D/g, ''); }
   function brl(v){ return Number(v || 0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
   function escapeHtml(v){ return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c])); }
