@@ -545,6 +545,13 @@ app.get('/api/mp/payment-status', async (req, res) => {
   }
 });
 
+app.get('/api/mp/webhook', (_req, res) => {
+  res.status(405).json({
+    ok: false,
+    message: 'Endpoint de webhook ativo. O Mercado Pago deve chamar esta URL via POST.'
+  });
+});
+
 app.post('/api/mp/webhook', async (req, res) => {
   try {
     const topic = req.body?.type || req.query?.type;
