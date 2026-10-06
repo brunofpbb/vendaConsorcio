@@ -268,12 +268,19 @@ const SHEET_HEADERS = [
 ];
 
 function nowBr() {
-  return new Date().toLocaleString('pt-BR', {
+  const parts = new Intl.DateTimeFormat('pt-BR', {
     timeZone: 'America/Sao_Paulo',
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
     hour12: false
-  });
+  }).formatToParts(new Date());
+
+  const get = type => parts.find(p => p.type === type)?.value || '';
+  return `${get('day')}/${get('month')}/${get('year')} ${get('hour')}:${get('minute')}:${get('second')}`;
 }
 
 const asSheetText = value => {
@@ -359,7 +366,7 @@ async function appendRecharge(row) {
     valueInputOption: 'USER_ENTERED',
     insertDataOption: 'INSERT_ROWS',
     requestBody: { values: [[
-      row.requestedAt || nowBr(),
+      asSheetText(row.requestedAt || nowBr()),
       '',
       row.name,
       asSheetText(row.phone),
