@@ -73,64 +73,6 @@ function contactUpdateRequired(emailValue, phoneValue) {
 }
 
 
-async function findStoredContactByCpf(cpf) {
-  const spreadsheetId = process.env.SHEETS_RECHARGE_ID;
-  if (!spreadsheetId) return { email: '', phone: '' };
-
-  try {
-    const sheets = sheetsClient();
-    const rechargeTab = await getRechargeTab(sheets, spreadsheetId);
-    const customersTab = safeText(process.env.SHEETS_CUSTOMERS_TAB || 'Clientes_Cadastrados', 120);
-
-    const [rechargeRes, customerRes] = await Promise.all([
-      sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: sheetRange(rechargeTab, 'A:S')
-      }),
-      sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: sheetRange(customersTab, 'A:F')
-      }).catch(() => ({ data: { values: [] } }))
-    ]);
-
-    let email = '';
-    let phone = '';
-
-    // Solicitação Recarga:
-    // D=telefone, E=e-mail, F=CPF. Varre de baixo para cima para priorizar o cadastro mais recente.
-    const rechargeRows = rechargeRes.data.values || [];
-    for (let i = rechargeRows.length - 1; i >= 1 && (!email || !phone); i--) {
-      const row = rechargeRows[i] || [];
-      if (onlyDigits(row[5]) !== cpf) continue;
-
-      const rowEmail = safeText(row[4] || '', 160).replace(/^'/, '').toLowerCase();
-      const rowPhone = onlyDigits(row[3] || '');
-
-      if (!email && isValidPersonalEmail(rowEmail)) email = rowEmail;
-      if (!phone && isValidPhone(rowPhone)) phone = rowPhone;
-    }
-
-    // Clientes_Cadastrados:
-    // C=telefone, D=e-mail, E=CPF. Também prioriza a linha mais recente.
-    const customerRows = customerRes.data.values || [];
-    for (let i = customerRows.length - 1; i >= 1 && (!email || !phone); i--) {
-      const row = customerRows[i] || [];
-      if (onlyDigits(row[4]) !== cpf) continue;
-
-      const rowEmail = safeText(row[3] || '', 160).replace(/^'/, '').toLowerCase();
-      const rowPhone = onlyDigits(row[2] || '');
-
-      if (!email && isValidPersonalEmail(rowEmail)) email = rowEmail;
-      if (!phone && isValidPhone(rowPhone)) phone = rowPhone;
-    }
-
-    return { email, phone };
-  } catch (_) {
-    // O histórico é apenas complemento. Falha no Sheets não deve impedir a consulta TACOM.
-    return { email: '', phone: '' };
-  }
-}
-
 /* ========================= TACOM ========================= */
 
 const TACOM_BASE_URL = (process.env.TACOM_BASE_URL || 'https://api.tacom.srv.br').replace(/\/$/, '');
@@ -235,22 +177,16 @@ app.post('/api/cards/search', async (req, res) => {
       });
     }
 
-    // Primeiro aproveita os dados válidos retornados pela TACOM.
-    let bestEmail = eligible
+    // Um mesmo CPF pode retornar mais de um registro/cartão com contatos diferentes.
+    // Aproveitamos qualquer e-mail pessoal e qualquer telefone válido encontrados,
+    // em vez de depender apenas do primeiro cartão retornado pela TACOM.
+    const bestEmail = eligible
       .map(x => safeText(x.email || '', 160).toLowerCase())
       .find(isValidPersonalEmail) || '';
 
-    let bestPhone = eligible
+    const bestPhone = eligible
       .map(x => onlyDigits(x.telefone || ''))
       .find(isValidPhone) || '';
-
-    // Se a TACOM estiver incompleta, reaproveita o contato válido já usado
-    // anteriormente nas abas do Sheets para não pedir ao cliente o mesmo dado novamente.
-    if (!bestEmail || !bestPhone) {
-      const storedContact = await findStoredContactByCpf(cpf);
-      if (!bestEmail && storedContact.email) bestEmail = storedContact.email;
-      if (!bestPhone && storedContact.phone) bestPhone = storedContact.phone;
-    }
 
     const needsContactUpdate = !bestEmail || !bestPhone;
 
