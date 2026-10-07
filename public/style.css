@@ -758,3 +758,14 @@ footer{
   visibility:visible!important;
   opacity:1!important;
 }
+
+.nav-hours{
+  gap:8px;
+}
+.bus-icon{
+  width:17px;
+  height:17px;
+  display:block;
+  flex:0 0 17px;
+  fill:var(--yellow);
+}
