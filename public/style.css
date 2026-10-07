@@ -769,3 +769,7 @@ footer{
   flex:0 0 17px;
   fill:var(--yellow);
 }
+
+.back-update{
+  margin-top:14px;
+}
