@@ -51,8 +51,10 @@ function isInstitutionalEmail(emailValue) {
   const target = 'turintransportes';
   return labels.some(label =>
     label.includes(target) ||
-    target.includes(label) ||
-    (label.length >= target.length - 3 && levenshtein(label, target) <= 2)
+    (
+      Math.abs(label.length - target.length) <= 2 &&
+      levenshtein(label, target) <= 2
+    )
   );
 }
 
