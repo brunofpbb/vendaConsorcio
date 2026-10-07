@@ -26,6 +26,41 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
   function digits(v){ return String(v || '').replace(/\D/g, ''); }
+  function levenshtein(a,b){
+    a=String(a||''); b=String(b||'');
+    const prev=Array.from({length:b.length+1},(_,i)=>i);
+    for(let i=1;i<=a.length;i++){
+      let left=i, diagonal=i-1;
+      for(let j=1;j<=b.length;j++){
+        const up=prev[j];
+        const cost=a[i-1]===b[j-1]?0:1;
+        const current=Math.min(up+1,left+1,diagonal+cost);
+        prev[j]=current; diagonal=up; left=current;
+      }
+    }
+    return prev[b.length];
+  }
+  function institutionalEmail(v){
+    const email=String(v||'').trim().toLowerCase();
+    if(!email.includes('@')) return false;
+    const labels=email.split('@').pop().split('.')
+      .map(x=>x.replace(/[^a-z0-9]/g,''))
+      .filter(Boolean);
+    const target='turintransportes';
+    return labels.some(label =>
+      label.includes(target) ||
+      target.includes(label) ||
+      (label.length >= target.length-3 && levenshtein(label,target) <= 2)
+    );
+  }
+  function validPersonalEmail(v){
+    const email=String(v||'').trim().toLowerCase();
+    return /^\S+@\S+\.\S+$/.test(email) && !institutionalEmail(email);
+  }
+  function validPhone(v){
+    const phone=digits(v);
+    return phone.length>=10 && phone.length<=11;
+  }
   function brl(v){ return Number(v || 0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
   function formatBalanceDate(v){
     const raw = String(v || '').trim();
@@ -118,16 +153,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function showUpdatePanel(){
     clearAlert();
-    const c = state.cards[0] || {};
-    $('#update-name').textContent = c.name || 'Cliente';
+    const firstCard = state.cards[0] || {};
+    const validEmail = state.cards.map(c => c.email).find(validPersonalEmail) || '';
+    const validPhoneValue = state.cards.map(c => c.phone).find(validPhone) || '';
+
+    $('#update-name').textContent = firstCard.name || 'Cliente';
     $('#update-cpf').textContent = 'CPF: ' + state.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
 
-    const validApiEmail =
-      /^\S+@\S+\.\S+$/.test(c.email || '') &&
-      !(String(c.email || '').toLowerCase().split('@')[1]?.includes('turintransportes'));
+    // Se apenas um dos dados estiver incorreto, preserva e pré-preenche o outro.
+    $('#update-email').value = validEmail;
+    $('#update-phone').value = validPhoneValue;
+    $('#update-phone').dispatchEvent(new Event('input'));
 
-    $('#update-email').value = validApiEmail ? c.email : '';
-    $('#update-phone').value = digits(c.phone).length >= 10 ? c.phone : '';
     go('update');
   }
 
@@ -142,6 +179,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if(!r.ok) throw new Error(j.message || 'Cadastro não encontrado.');
       state.cpf = cpf;
       state.cards = j.cards || [];
+      if(j.contact){
+        state.email = j.contact.email || '';
+        state.phone = j.contact.phone || '';
+      }
       renderCards();
 
       const needsUpdate = state.cards.some(c => c.contactUpdateRequired);
@@ -173,10 +214,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const phone = digits($('#update-phone').value);
     const btn = e.submitter;
 
-    if(!/^\S+@\S+\.\S+$/.test(email) || email.split('@')[1]?.includes('turintransportes')){
+    if(!validPersonalEmail(email)){
       return showAlert('Informe um e-mail pessoal válido.');
     }
-    if(phone.length < 10 || phone.length > 11){
+    if(!validPhone(phone)){
       return showAlert('Informe um telefone válido com DDD.');
     }
 
