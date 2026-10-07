@@ -19,15 +19,55 @@ const safeText = (v, max = 250) => String(v ?? '').trim().slice(0, max);
 const money = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
 const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
 
-function contactUpdateRequired(emailValue, phoneValue) {
-  const email = safeText(emailValue || '', 160).toLowerCase();
-  const emailDomain = email.includes('@') ? email.split('@').pop() : '';
-  const phone = onlyDigits(phoneValue || '');
+function levenshtein(a, b) {
+  const s = String(a || '');
+  const t = String(b || '');
+  const prev = Array.from({ length: t.length + 1 }, (_, i) => i);
 
-  return !isEmail(email) ||
-    emailDomain.includes('turintransportes') ||
-    phone.length < 10 ||
-    phone.length > 11;
+  for (let i = 1; i <= s.length; i++) {
+    let left = i;
+    let diagonal = i - 1;
+    for (let j = 1; j <= t.length; j++) {
+      const up = prev[j];
+      const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+      const current = Math.min(up + 1, left + 1, diagonal + cost);
+      prev[j] = current;
+      diagonal = up;
+      left = current;
+    }
+  }
+  return prev[t.length];
+}
+
+function isInstitutionalEmail(emailValue) {
+  const email = safeText(emailValue || '', 160).toLowerCase();
+  if (!email.includes('@')) return false;
+
+  const domain = email.split('@').pop();
+  const labels = domain.split('.')
+    .map(x => x.replace(/[^a-z0-9]/g, ''))
+    .filter(Boolean);
+
+  const target = 'turintransportes';
+  return labels.some(label =>
+    label.includes(target) ||
+    target.includes(label) ||
+    (label.length >= target.length - 3 && levenshtein(label, target) <= 2)
+  );
+}
+
+function isValidPersonalEmail(emailValue) {
+  const email = safeText(emailValue || '', 160).toLowerCase();
+  return isEmail(email) && !isInstitutionalEmail(email);
+}
+
+function isValidPhone(phoneValue) {
+  const phone = onlyDigits(phoneValue || '');
+  return phone.length >= 10 && phone.length <= 11;
+}
+
+function contactUpdateRequired(emailValue, phoneValue) {
+  return !isValidPersonalEmail(emailValue) || !isValidPhone(phoneValue);
 }
 
 /* ========================= TACOM ========================= */
@@ -118,24 +158,15 @@ async function fetchTacomCards(cpf, retry = true) {
 app.post('/api/cards/search', async (req, res) => {
   try {
     const cpf = onlyDigits(req.body?.cpf);
-    if (cpf.length !== 11) return res.status(400).json({ ok: false, message: 'Informe um CPF com 11 dígitos.' });
+    if (cpf.length !== 11) {
+      return res.status(400).json({ ok: false, message: 'Informe um CPF com 11 dígitos.' });
+    }
 
     const result = await fetchTacomCards(cpf);
     const source = Array.isArray(result) ? result : (Array.isArray(result?.data) ? result.data : []);
-    const cards = source
-      .filter(x => String(x?.codigoExternoCartao || '').startsWith('0362'))
-      .map(x => ({
-        cardNumber: safeText(x.codigoExternoCartao, 40),
-        name: safeText(x.nomeDependente || x.nome || '', 120),
-        cpf: onlyDigits(x.cpf || cpf),
-        email: safeText(x.email || '', 160),
-        phone: onlyDigits(x.telefone || ''),
-        balance: x.saldoCartao ?? null,
-        balanceDate: safeText(x.dataSaldo || '', 40),
-        contactUpdateRequired: contactUpdateRequired(x.email, x.telefone)
-      }));
+    const eligible = source.filter(x => String(x?.codigoExternoCartao || '').startsWith('0362'));
 
-    if (!cards.length) {
+    if (!eligible.length) {
       return res.status(404).json({
         ok: false,
         code: 'NO_ELIGIBLE_CARD',
@@ -143,7 +174,39 @@ app.post('/api/cards/search', async (req, res) => {
       });
     }
 
-    res.json({ ok: true, cards });
+    // Um mesmo CPF pode retornar mais de um registro/cartão com contatos diferentes.
+    // Aproveitamos qualquer e-mail pessoal e qualquer telefone válido encontrados,
+    // em vez de depender apenas do primeiro cartão retornado pela TACOM.
+    const bestEmail = eligible
+      .map(x => safeText(x.email || '', 160).toLowerCase())
+      .find(isValidPersonalEmail) || '';
+
+    const bestPhone = eligible
+      .map(x => onlyDigits(x.telefone || ''))
+      .find(isValidPhone) || '';
+
+    const needsContactUpdate = !bestEmail || !bestPhone;
+
+    const cards = eligible.map(x => ({
+      cardNumber: safeText(x.codigoExternoCartao, 40),
+      name: safeText(x.nomeDependente || x.nome || '', 120),
+      cpf: onlyDigits(x.cpf || cpf),
+      email: bestEmail,
+      phone: bestPhone,
+      balance: x.saldoCartao ?? null,
+      balanceDate: safeText(x.dataSaldo || '', 40),
+      contactUpdateRequired: needsContactUpdate
+    }));
+
+    res.json({
+      ok: true,
+      cards,
+      contact: {
+        email: bestEmail,
+        phone: bestPhone,
+        updateRequired: needsContactUpdate
+      }
+    });
   } catch (e) {
     console.error('[TACOM]', e);
     if (e?.statusCode === 404) {
@@ -153,7 +216,10 @@ app.post('/api/cards/search', async (req, res) => {
         message: 'Não encontramos cartão habilitado para recarga vinculado a este CPF.'
       });
     }
-    res.status(502).json({ ok: false, message: 'Não foi possível consultar os cartões agora. Tente novamente.' });
+    res.status(502).json({
+      ok: false,
+      message: 'Não foi possível consultar os cartões agora. Tente novamente.'
+    });
   }
 });
 
@@ -176,7 +242,6 @@ async function appendCustomerRegistration({ cpf, name, phone, email, cards }) {
   }
 
   const cardList = Array.isArray(cards) && cards.length ? cards : [''];
-  const now = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -185,12 +250,12 @@ async function appendCustomerRegistration({ cpf, name, phone, email, cards }) {
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
       values: cardList.map(cardNumber => [
-        now,
+        asSheetText(nowBr()),
         safeText(name, 120),
-        onlyDigits(phone),
+        asSheetText(onlyDigits(phone)),
         safeText(email, 160),
-        onlyDigits(cpf),
-        safeText(cardNumber, 40)
+        asSheetText(onlyDigits(cpf)),
+        asSheetText(safeText(cardNumber, 40))
       ])
     }
   });
@@ -200,20 +265,19 @@ app.post('/api/customer/update', async (req, res) => {
   try {
     const cpf = onlyDigits(req.body?.cpf);
     const email = safeText(req.body?.email, 160).toLowerCase();
-    const emailDomain = email.includes('@') ? email.split('@').pop() : '';
     const phone = onlyDigits(req.body?.phone);
     const name = safeText(req.body?.name, 120);
     const cards = Array.isArray(req.body?.cards)
-      ? [...new Set(req.body.cards.map(x => safeText(x, 40)).filter(x => x.startsWith('0362')))]
+      ? [...new Set(req.body.cards.map(x => safeText(x, 40)).filter(Boolean))]
       : [];
 
     if (cpf.length !== 11) {
       return res.status(400).json({ ok: false, message: 'CPF inválido.' });
     }
-    if (!isEmail(email) || emailDomain.includes('turintransportes')) {
+    if (!isValidPersonalEmail(email)) {
       return res.status(400).json({ ok: false, message: 'Informe um e-mail pessoal válido.' });
     }
-    if (phone.length < 10 || phone.length > 11) {
+    if (!isValidPhone(phone)) {
       return res.status(400).json({ ok: false, message: 'Informe um telefone válido com DDD.' });
     }
     if (!name || !cards.length) {
