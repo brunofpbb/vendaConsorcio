@@ -49,8 +49,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const target='turintransportes';
     return labels.some(label =>
       label.includes(target) ||
-      target.includes(label) ||
-      (label.length >= target.length-3 && levenshtein(label,target) <= 2)
+      (
+        Math.abs(label.length-target.length) <= 2 &&
+        levenshtein(label,target) <= 2
+      )
     );
   }
   function validPersonalEmail(v){
@@ -154,8 +156,14 @@ document.addEventListener('DOMContentLoaded', () => {
   function showUpdatePanel(){
     clearAlert();
     const firstCard = state.cards[0] || {};
-    const validEmail = state.cards.map(c => c.email).find(validPersonalEmail) || '';
-    const validPhoneValue = state.cards.map(c => c.phone).find(validPhone) || '';
+    const validEmail =
+      (validPersonalEmail(state.email) ? state.email : '') ||
+      state.cards.map(c => c.email).find(validPersonalEmail) ||
+      '';
+    const validPhoneValue =
+      (validPhone(state.phone) ? state.phone : '') ||
+      state.cards.map(c => c.phone).find(validPhone) ||
+      '';
 
     $('#update-name').textContent = firstCard.name || 'Cliente';
     $('#update-cpf').textContent = 'CPF: ' + state.cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
