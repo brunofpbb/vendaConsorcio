@@ -124,7 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const validApiEmail =
       /^\S+@\S+\.\S+$/.test(c.email || '') &&
-      String(c.email || '').toLowerCase() !== 'recepcao@turintransportes.com.br';
+      !(String(c.email || '').toLowerCase().split('@')[1]?.includes('turintransportes'));
 
     $('#update-email').value = validApiEmail ? c.email : '';
     $('#update-phone').value = digits(c.phone).length >= 10 ? c.phone : '';
@@ -173,8 +173,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const phone = digits($('#update-phone').value);
     const btn = e.submitter;
 
-    if(!/^\S+@\S+\.\S+$/.test(email) || email === 'recepcao@turintransportes.com.br'){
-      return showAlert('Informe um e-mail válido.');
+    if(!/^\S+@\S+\.\S+$/.test(email) || email.split('@')[1]?.includes('turintransportes')){
+      return showAlert('Informe um e-mail pessoal válido.');
     }
     if(phone.length < 10 || phone.length > 11){
       return showAlert('Informe um telefone válido com DDD.');
@@ -187,7 +187,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const r = await fetch('/api/customer/update',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ cpf:state.cpf, email, phone })
+        body:JSON.stringify({
+          cpf:state.cpf,
+          email,
+          phone,
+          name:state.cards[0]?.name || '',
+          cards:state.cards.map(c => c.cardNumber)
+        })
       });
       const j = await r.json();
       if(!r.ok) throw new Error(j.message || 'Não foi possível atualizar o cadastro.');
