@@ -19,6 +19,17 @@ const safeText = (v, max = 250) => String(v ?? '').trim().slice(0, max);
 const money = (v) => Math.round((Number(v) + Number.EPSILON) * 100) / 100;
 const isEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || '').trim());
 
+function contactUpdateRequired(emailValue, phoneValue) {
+  const email = safeText(emailValue || '', 160).toLowerCase();
+  const emailDomain = email.includes('@') ? email.split('@').pop() : '';
+  const phone = onlyDigits(phoneValue || '');
+
+  return !isEmail(email) ||
+    emailDomain.includes('turintransportes') ||
+    phone.length < 10 ||
+    phone.length > 11;
+}
+
 /* ========================= TACOM ========================= */
 
 const TACOM_BASE_URL = (process.env.TACOM_BASE_URL || 'https://api.tacom.srv.br').replace(/\/$/, '');
@@ -121,10 +132,7 @@ app.post('/api/cards/search', async (req, res) => {
         phone: onlyDigits(x.telefone || ''),
         balance: x.saldoCartao ?? null,
         balanceDate: safeText(x.dataSaldo || '', 40),
-        contactUpdateRequired:
-          !isEmail(safeText(x.email || '', 160)) ||
-          safeText(x.email || '', 160).toLowerCase() === 'recepcao@turintransportes.com.br' ||
-          onlyDigits(x.telefone || '').length < 10
+        contactUpdateRequired: contactUpdateRequired(x.email, x.telefone)
       }));
 
     if (!cards.length) {
@@ -192,33 +200,32 @@ app.post('/api/customer/update', async (req, res) => {
   try {
     const cpf = onlyDigits(req.body?.cpf);
     const email = safeText(req.body?.email, 160).toLowerCase();
+    const emailDomain = email.includes('@') ? email.split('@').pop() : '';
     const phone = onlyDigits(req.body?.phone);
+    const name = safeText(req.body?.name, 120);
+    const cards = Array.isArray(req.body?.cards)
+      ? [...new Set(req.body.cards.map(x => safeText(x, 40)).filter(x => x.startsWith('0362')))]
+      : [];
 
     if (cpf.length !== 11) {
       return res.status(400).json({ ok: false, message: 'CPF inválido.' });
     }
-    if (!isEmail(email) || email === 'recepcao@turintransportes.com.br') {
-      return res.status(400).json({ ok: false, message: 'Informe um e-mail válido.' });
+    if (!isEmail(email) || emailDomain.includes('turintransportes')) {
+      return res.status(400).json({ ok: false, message: 'Informe um e-mail pessoal válido.' });
     }
     if (phone.length < 10 || phone.length > 11) {
       return res.status(400).json({ ok: false, message: 'Informe um telefone válido com DDD.' });
     }
-
-    // Revalida o CPF/cartões diretamente na TACOM antes de gravar no Sheets.
-    const tacom = await fetchTacomCards(cpf);
-    const rows = Array.isArray(tacom) ? tacom : (Array.isArray(tacom?.data) ? tacom.data : []);
-    const eligible = rows.filter(x => String(x?.codigoExternoCartao || '').startsWith('0362'));
-
-    if (!eligible.length) {
-      return res.status(404).json({
+    if (!name || !cards.length) {
+      return res.status(400).json({
         ok: false,
-        message: 'Não encontramos cartão habilitado para este CPF.'
+        message: 'Não foi possível identificar os dados consultados. Consulte o CPF novamente.'
       });
     }
 
-    const name = safeText(eligible[0]?.nomeDependente || eligible[0]?.nome || '', 120);
-    const cards = eligible.map(x => safeText(x.codigoExternoCartao, 40));
-
+    // Não consulta novamente a TACOM aqui. Os cartões/nome vieram da consulta
+    // imediatamente anterior; a atualização preenchida pelo cliente é gravada
+    // para tratamento manual do operador e o fluxo de recarga segue normalmente.
     await appendCustomerRegistration({ cpf, name, phone, email, cards });
 
     return res.json({
