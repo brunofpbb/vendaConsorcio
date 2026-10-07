@@ -413,6 +413,17 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#pix-code').value = code;
     $('#pix-box').hidden = false;
     $('#payment-brick').style.display='none';
+
+    // Depois que o PIX estiver visível, posiciona a página no bloco do QR Code.
+    // requestAnimationFrame garante que o layout já tenha sido recalculado após ocultar o Brick.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const pixBox = $('#pix-box');
+        if(!pixBox) return;
+        const top = pixBox.getBoundingClientRect().top + window.scrollY - 24;
+        window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+      });
+    });
   }
 
   $('#copy-pix').addEventListener('click', async () => {
