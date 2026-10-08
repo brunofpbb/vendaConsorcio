@@ -634,14 +634,31 @@ app.post('/api/mp/webhook', async (req, res) => {
       return res.status(200).json({ ok: true, ignored: true });
     }
 
+    // Atualiza primeiro a planilha do próprio projeto.
+    // Isso evita depender do n8n para refletir o pagamento em Consórcio/Congonhas.
+    try {
+      const payment = await mpGetPayment(String(dataId));
+      const correlationId = safeText(
+        payment?.external_reference ||
+        payment?.metadata?.correlation_id ||
+        '',
+        120
+      );
+
+      if (correlationId) {
+        await updateRechargeByCorrelation(correlationId, payment);
+      }
+    } catch (sheetErr) {
+      console.error('[MP][webhook][sheet]', sheetErr);
+    }
+
+    // O n8n continua recebendo a notificação para executar o fluxo operacional.
     const n8nUrl = process.env.N8N_PAYMENT_WEBHOOK_URL;
     if (!n8nUrl) {
       console.warn('[MP][Webhook] N8N_PAYMENT_WEBHOOK_URL não configurada.');
       return res.status(200).json({ ok: true, forwarded: false });
     }
 
-    // Repassa a requisição como se o Mercado Pago estivesse chamando o n8n diretamente.
-    // O próprio Webhook node do n8n montará headers/query/body no formato habitual.
     const target = new URL(n8nUrl);
     for (const [key, value] of Object.entries(req.query || {})) {
       if (Array.isArray(value)) {
