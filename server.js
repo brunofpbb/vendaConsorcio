@@ -12,7 +12,15 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '1mb' }));
-app.use(express.static(PUBLIC_DIR));
+app.use(express.static(PUBLIC_DIR, {
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('app.js') || filePath.endsWith('style.css') || filePath.endsWith('index.html')) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }
+}));
 
 const onlyDigits = (v) => String(v ?? '').replace(/\D/g, '');
 const safeText = (v, max = 250) => String(v ?? '').trim().slice(0, max);
@@ -487,7 +495,7 @@ async function updateRechargeByCorrelation(correlationId, payment) {
         : (paymentType === 'debit_card' ? 'Cartão de Débito' : (paymentMethod || paymentType || current[16] || '')));
   const values = [[
     paidAt,
-    current[9] || 'Não', // "Lançado?" é responsabilidade do fluxo de recarga/n8n
+    current[9] || '', // "Lançado?" é responsabilidade do fluxo de recarga/n8n
     payerName || current[10] || '',
     payerCpf || current[11] || '',
     String(payment?.id || ''),
@@ -611,8 +619,33 @@ app.get('/api/mp/payment-status', async (req, res) => {
   try {
     const id = safeText(req.query?.id, 60);
     if (!id) return res.status(400).json({ ok: false, message: 'Pagamento não informado.' });
+
     const p = await mpGetPayment(id);
-    res.json({ ok: true, id: p.id, status: p.status, status_detail: p.status_detail, date_approved: p.date_approved || null });
+
+    // O polling do próprio site também sincroniza a planilha local.
+    // Assim a confirmação não depende exclusivamente da entrega do webhook pelo Mercado Pago.
+    const correlationId = safeText(
+      p?.external_reference ||
+      p?.metadata?.correlation_id ||
+      '',
+      120
+    );
+
+    if (correlationId) {
+      try {
+        await updateRechargeByCorrelation(correlationId, p);
+      } catch (sheetErr) {
+        console.error('[MP][payment-status][sheet]', sheetErr);
+      }
+    }
+
+    res.json({
+      ok: true,
+      id: p.id,
+      status: p.status,
+      status_detail: p.status_detail,
+      date_approved: p.date_approved || null
+    });
   } catch (e) {
     res.status(400).json({ ok: false, message: 'Falha ao consultar o pagamento.' });
   }
@@ -696,6 +729,9 @@ app.post('/api/mp/webhook', async (req, res) => {
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
-app.get('*', (_req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));
+app.get('*', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+});
 
 app.listen(PORT, () => console.log(`Venda Consórcio ouvindo na porta ${PORT}`));
