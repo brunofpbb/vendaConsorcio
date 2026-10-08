@@ -374,9 +374,8 @@ document.addEventListener('DOMContentLoaded', () => {
             state.paymentId = j.id;
             const status = String(j.status || '').toLowerCase();
 
-            if(status === 'approved'){
-              $$('.panel').forEach(p=>p.classList.remove('active'));
-              $('#panel-success').classList.add('active');
+            if(['approved','accredited'].includes(status)){
+              showPaymentSuccess();
               return;
             }
 
