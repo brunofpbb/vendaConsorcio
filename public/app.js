@@ -375,7 +375,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const status = String(j.status || '').toLowerCase();
 
             if(status === 'approved'){
-              $$$('.panel').forEach(p=>p.classList.remove('active'));
+              $('.panel').forEach(p=>p.classList.remove('active'));
               $('#panel-success').classList.add('active');
               return;
             }
@@ -434,6 +434,23 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(()=>$('#copy-pix').textContent='Copiar',1600);
   });
 
+  function showPaymentSuccess(){
+    $('#pix-box').hidden = true;
+    $('#payment-brick').style.display = 'none';
+    $('#success-card').textContent = state.card?.cardNumber || '—';
+    $('#success-amount').textContent = brl(state.amount);
+
+    $('.panel').forEach(p => p.classList.remove('active'));
+    $('#panel-success').classList.add('active');
+
+    requestAnimationFrame(() => {
+      const panel = $('#panel-success');
+      if(!panel) return;
+      const top = panel.getBoundingClientRect().top + window.scrollY - 28;
+      window.scrollTo({ top: Math.max(0, top), behavior:'smooth' });
+    });
+  }
+
   function startPolling(id){
     const started=Date.now();
     const timer=setInterval(async()=>{
@@ -444,7 +461,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if(['approved','accredited'].includes(st)){
           clearInterval(timer);
           $('#pix-status').textContent='Pagamento confirmado!';
-          $$$('.panel').forEach(p=>p.classList.remove('active'));
+          $('.panel').forEach(p=>p.classList.remove('active'));
           $('#panel-success').classList.add('active');
           return;
         }
