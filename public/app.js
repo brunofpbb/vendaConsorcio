@@ -375,7 +375,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const status = String(j.status || '').toLowerCase();
 
             if(status === 'approved'){
-              $('.panel').forEach(p=>p.classList.remove('active'));
+              $$('.panel').forEach(p=>p.classList.remove('active'));
               $('#panel-success').classList.add('active');
               return;
             }
@@ -440,7 +440,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#success-card').textContent = state.card?.cardNumber || '—';
     $('#success-amount').textContent = brl(state.amount);
 
-    $('.panel').forEach(p => p.classList.remove('active'));
+    $$('.panel').forEach(p => p.classList.remove('active'));
     $('#panel-success').classList.add('active');
 
     requestAnimationFrame(() => {
@@ -460,9 +460,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const st=String(j.status||'').toLowerCase();
         if(['approved','accredited'].includes(st)){
           clearInterval(timer);
-          $('#pix-status').textContent='Pagamento confirmado!';
-          $('.panel').forEach(p=>p.classList.remove('active'));
-          $('#panel-success').classList.add('active');
+          showPaymentSuccess();
           return;
         }
         if(['rejected','cancelled'].includes(st)){ clearInterval(timer); $('#pix-status').textContent='Pagamento não aprovado. Gere um novo PIX.'; }
