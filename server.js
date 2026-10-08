@@ -462,60 +462,6 @@ async function appendRecharge(row) {
   });
 }
 
-async function updateRechargeByCorrelation(correlationId, payment) {
-  const spreadsheetId = process.env.SHEETS_RECHARGE_ID;
-  if (!spreadsheetId) return false;
-  const sheets = sheetsClient();
-  const tab = await getRechargeTab(sheets, spreadsheetId);
-  const r = await sheets.spreadsheets.values.get({ spreadsheetId, range: sheetRange(tab, 'A:S') });
-  const rows = r.data.values || [];
-  if (rows.length < 2) return false;
-  const header = rows[0];
-  const idxCorrelation = header.indexOf('correlationID');
-  if (idxCorrelation < 0) return false;
-
-  const rowIdx = rows.findIndex((row, i) => i > 0 && String(row[idxCorrelation] || '') === String(correlationId));
-  if (rowIdx < 1) return false;
-
-  const approved = ['approved', 'accredited'].includes(String(payment?.status || '').toLowerCase());
-  const paidAt = payment?.date_approved || (approved ? new Date().toISOString() : '');
-  const payerName = safeText(
-    [payment?.payer?.first_name, payment?.payer?.last_name].filter(Boolean).join(' ') || '',
-    120
-  );
-  const payerCpf = onlyDigits(payment?.payer?.identification?.number || '');
-
-  const current = rows[rowIdx] || [];
-  const paymentType = String(payment?.payment_type_id || '').toLowerCase();
-  const paymentMethod = String(payment?.payment_method_id || '').toLowerCase();
-  const paymentMethodLabel =
-    paymentMethod === 'pix' || paymentType === 'bank_transfer'
-      ? 'PIX'
-      : (paymentType === 'credit_card' ? 'Cartão de Crédito'
-        : (paymentType === 'debit_card' ? 'Cartão de Débito' : (paymentMethod || paymentType || current[16] || '')));
-  const values = [[
-    paidAt,
-    current[9] || '', // "Lançado?" é responsabilidade do fluxo de recarga/n8n
-    payerName || current[10] || '',
-    payerCpf || current[11] || '',
-    String(payment?.id || ''),
-    correlationId,
-    current[14] || '',
-    current[15] || correlationId,
-    paymentMethodLabel,
-    current[17] || '',
-    String(payment?.id || '')
-  ]];
-
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: sheetRange(tab, `I${rowIdx + 1}:S${rowIdx + 1}`),
-    valueInputOption: 'USER_ENTERED',
-    requestBody: { values }
-  });
-  return true;
-}
-
 app.post('/api/mp/pay', async (req, res) => {
   try {
     if (!payments || !MP_PUBLIC_KEY) return res.status(500).json({ ok: false, message: 'Mercado Pago não configurado.' });
@@ -576,7 +522,7 @@ app.post('/api/mp/pay', async (req, res) => {
     await appendRecharge({
       requestedAt: nowBr(),
       name, phone, email, cpf, cardNumber, amount,
-      payerName: name, payerCpf: cpf,
+      payerName: '', payerCpf: '',
       paymentId: '',
       correlationId,
       reference: correlationId,
@@ -622,23 +568,8 @@ app.get('/api/mp/payment-status', async (req, res) => {
 
     const p = await mpGetPayment(id);
 
-    // O polling do próprio site também sincroniza a planilha local.
-    // Assim a confirmação não depende exclusivamente da entrega do webhook pelo Mercado Pago.
-    const correlationId = safeText(
-      p?.external_reference ||
-      p?.metadata?.correlation_id ||
-      '',
-      120
-    );
-
-    if (correlationId) {
-      try {
-        await updateRechargeByCorrelation(correlationId, p);
-      } catch (sheetErr) {
-        console.error('[MP][payment-status][sheet]', sheetErr);
-      }
-    }
-
+    // Este endpoint serve apenas para a interface acompanhar o status.
+    // A atualização da planilha continua centralizada no n8n.
     res.json({
       ok: true,
       id: p.id,
@@ -667,31 +598,15 @@ app.post('/api/mp/webhook', async (req, res) => {
       return res.status(200).json({ ok: true, ignored: true });
     }
 
-    // Atualiza primeiro a planilha do próprio projeto.
-    // Isso evita depender do n8n para refletir o pagamento em Consórcio/Congonhas.
-    try {
-      const payment = await mpGetPayment(String(dataId));
-      const correlationId = safeText(
-        payment?.external_reference ||
-        payment?.metadata?.correlation_id ||
-        '',
-        120
-      );
-
-      if (correlationId) {
-        await updateRechargeByCorrelation(correlationId, payment);
-      }
-    } catch (sheetErr) {
-      console.error('[MP][webhook][sheet]', sheetErr);
-    }
-
-    // O n8n continua recebendo a notificação para executar o fluxo operacional.
     const n8nUrl = process.env.N8N_PAYMENT_WEBHOOK_URL;
     if (!n8nUrl) {
       console.warn('[MP][Webhook] N8N_PAYMENT_WEBHOOK_URL não configurada.');
       return res.status(200).json({ ok: true, forwarded: false });
     }
 
+    // Repassa a notificação do Mercado Pago para o n8n.
+    // O n8n continua responsável por consultar os detalhes do pagamento,
+    // localizar a linha pelo correlationID/external_reference e atualizar o Sheets.
     const target = new URL(n8nUrl);
     for (const [key, value] of Object.entries(req.query || {})) {
       if (Array.isArray(value)) {
