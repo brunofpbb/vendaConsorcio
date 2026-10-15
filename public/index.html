@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Recarga Online | Consórcio Rota Real</title>
   <meta name="description" content="Recarga online do cartão de bilhetagem eletrônica do Consórcio Rota Real.">
-  <link rel="stylesheet" href="/style.css?v=20261008-3">
+  <link rel="stylesheet" href="/style.css?v=20261015-1">
   <script src="https://sdk.mercadopago.com/js/v2"></script>
-  <script defer src="/app.js?v=20261008-3"></script>
+  <script defer src="/app.js?v=20261015-1"></script>
 </head>
 <body>
   <header class="site-shell">
@@ -67,7 +67,7 @@
       <div class="hero-copy">
         <span class="eyebrow"><i></i> BILHETAGEM ELETRÔNICA</span>
         <h1>Recarga online<br>com <strong>mais facilidade.</strong></h1>
-        <p>Consulte seu cadastro pelo CPF, escolha seu cartão Rota Real e conclua o pagamento por PIX ou cartão.</p>
+        <p>Consulte seu saldo pelo CPF, escolha seu cartão Rota Real e faça sua recarga com pagamento por PIX ou cartão.</p>
         <div class="hero-pills">
           <span>✓ Cartões 0362</span>
           <span>✓ Pagamento seguro</span>
@@ -100,8 +100,8 @@
 
       <section class="panel active" id="panel-cpf">
         <span class="kicker">IDENTIFICAÇÃO</span>
-        <h2>Informe seu CPF</h2>
-        <p class="muted">Digite apenas os números.</p>
+        <h2>Consulte seu saldo ou faça uma recarga</h2>
+        <p class="muted">Informe seu CPF para visualizar seus cartões e o saldo aproximado disponível.</p>
         <form id="cpf-form">
           <label for="cpf">CPF</label>
           <input id="cpf" name="cpf" inputmode="numeric" autocomplete="off" maxlength="14" placeholder="000.000.000-00" required>
@@ -134,8 +134,8 @@
 
       <section class="panel" id="panel-card">
         <span class="kicker">SEU CARTÃO</span>
-        <h2>Escolha o cartão para recarga</h2>
-        <p class="muted">São exibidos somente cartões habilitados para esta recarga.</p>
+        <h2>Consulte o saldo e escolha seu cartão</h2>
+        <p class="muted">Veja o saldo aproximado e clique em <strong>Recarregar</strong> no cartão desejado.</p>
         <div id="cards-list" class="cards-list"></div>
         <button class="btn ghost back" type="button" data-back="1">Voltar</button>
       </section>
@@ -188,10 +188,50 @@
             <strong id="success-amount">—</strong>
           </div>
         </div>
-        <p class="success-note">A recarga seguirá para processamento no sistema de bilhetagem e estará disponível nos nossos veículos em até 72 horas úteis.</p>
+        <p class="success-note">💙 Sua recarga seguirá para processamento e será disponibilizada conforme os prazos informados. Em situações excepcionais, o prazo poderá ser de até <strong>72 horas úteis</strong>.</p>
         <button class="btn primary" id="new-recharge" type="button">Fazer nova recarga</button>
       </section>
     </section>
+
+
+    <div class="recharge-notice" id="recharge-notice" hidden>
+      <div class="recharge-notice-backdrop" data-notice-close></div>
+      <section class="recharge-notice-card" role="dialog" aria-modal="true" aria-labelledby="recharge-notice-title">
+        <span class="kicker">ANTES DE CONTINUAR</span>
+        <h2 id="recharge-notice-title">Quando sua recarga estará disponível?</h2>
+        <p class="notice-intro">Confira os prazos de disponibilização antes de prosseguir com o pagamento.</p>
+
+        <div class="notice-deadlines">
+          <div class="notice-item">
+            <strong>Segunda a quinta-feira</strong>
+            <span>Pagamentos confirmados até <b>16h</b> ficam disponíveis no <b>próximo dia útil</b>. Após as 16h, no <b>segundo dia útil</b>.</span>
+          </div>
+          <div class="notice-item">
+            <strong>Sexta-feira</strong>
+            <span>O horário limite é <b>15h</b>.</span>
+          </div>
+          <div class="notice-item">
+            <strong>Após sexta-feira às 15h</strong>
+            <span>Pagamentos realizados até <b>segunda-feira às 16h</b> ficam disponíveis na <b>terça-feira</b>, exceto quando a segunda-feira for feriado.</span>
+          </div>
+        </div>
+
+        <div class="notice-important">
+          <span aria-hidden="true">💙</span>
+          <p><strong>Importante:</strong> normalmente a recarga é disponibilizada nos prazos acima. Em situações excepcionais ou de contingência, o processamento poderá levar até <strong>72 horas úteis</strong> após a confirmação do pagamento.</p>
+        </div>
+
+        <label class="notice-consent">
+          <input id="notice-consent" type="checkbox">
+          <span>Li e estou ciente dos prazos de disponibilização da recarga.</span>
+        </label>
+
+        <div class="notice-actions">
+          <button class="btn ghost" id="notice-cancel" type="button">Voltar</button>
+          <button class="btn primary" id="notice-continue" type="button" disabled>Entendi, continuar</button>
+        </div>
+      </section>
+    </div>
 
     <section class="trust">
       <div><b>PIX ou cartão</b><span>Processado pelo Mercado Pago</span></div>
